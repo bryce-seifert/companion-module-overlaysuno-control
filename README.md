@@ -1,1 +1,3 @@
 # companion-module-overlaysuno-control
+
+See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE)
