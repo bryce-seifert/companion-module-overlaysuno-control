@@ -6,6 +6,7 @@ import type {
 import type { ApiPayload, OverlayModelField } from '../api.js'
 import { buildFieldChoices, buildFieldValueInputs, NUMERIC_FIELD_TYPES } from '../fields.js'
 import type { ModuleInstance } from '../main.js'
+import type { DropdownChoice, JsonObject } from '../types.js'
 import { EXECUTE_FUNCTION_CHOICES } from './shared.js'
 
 export interface FieldActionConfig {
@@ -31,7 +32,18 @@ export interface FieldActionConfig {
 		execute: string
 	}
 	payloadFor: (options: CompanionOptionValues) => ApiPayload
-	fetchValues: (options: CompanionOptionValues) => Promise<Record<string, unknown> | undefined>
+	fetchValues: (options: CompanionOptionValues) => Promise<JsonObject | undefined>
+}
+
+function fieldOption(choices: DropdownChoice[]): SomeCompanionActionInputField {
+	return {
+		id: 'fieldId',
+		type: 'dropdown',
+		label: 'Field',
+		choices,
+		default: choices[0]?.id ?? '',
+		allowCustom: true,
+	}
 }
 
 export function buildFieldActions(self: ModuleInstance, config: FieldActionConfig): CompanionActionDefinitions {
@@ -42,15 +54,6 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 		(field) => NUMERIC_FIELD_TYPES.has(field.type),
 		'No numeric fields',
 	)
-
-	const fieldOption = (choices: { id: string; label: string }[]): SomeCompanionActionInputField => ({
-		id: 'fieldId',
-		type: 'dropdown',
-		label: 'Field',
-		choices,
-		default: choices[0]?.id ?? '',
-		allowCustom: true,
-	})
 
 	return {
 		[config.actionIds.set]: {
@@ -96,9 +99,10 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 				},
 			],
 			callback: async (event) => {
+				const command = event.options.direction === 'decrement' ? config.commands.decrement : config.commands.increment
 				await self.sendAndRefresh({
 					...config.payloadFor(event.options),
-					command: event.options.direction === 'decrement' ? config.commands.decrement : config.commands.increment,
+					command,
 					fieldId: String(event.options.fieldId),
 					value: String(event.options.value),
 				})

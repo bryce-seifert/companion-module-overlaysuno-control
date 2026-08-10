@@ -1,4 +1,5 @@
 import { type SomeCompanionConfigField } from '@companion-module/base'
+import { DEFAULT_POLL_INTERVAL_SECONDS } from './types.js'
 
 export interface ModuleConfig {
 	apiToken: string
@@ -30,7 +31,7 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			width: 4,
 			min: 10,
 			max: 3600,
-			default: 60,
+			default: DEFAULT_POLL_INTERVAL_SECONDS,
 		},
 	]
 }

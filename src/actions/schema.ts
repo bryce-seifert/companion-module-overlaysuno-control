@@ -2,6 +2,7 @@ import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
 import { collectSchemaCommands, argInput, resolveArg, titleCase } from '../schema-commands.js'
+import { errorMessage } from '../util.js'
 import { overlayChoices } from './shared.js'
 
 export function getSchemaActions(self: ModuleInstance): CompanionActionDefinitions {
@@ -19,8 +20,8 @@ export function getSchemaActions(self: ModuleInstance): CompanionActionDefinitio
 					for (const arg of cmd.arguments) {
 						payload[arg.id] = resolveArg(arg, event.options[arg.id])
 					}
-				} catch (e) {
-					self.log('error', `${cmd.command}: invalid option value - ${e}`)
+				} catch (error) {
+					self.log('error', `${cmd.command}: invalid option value - ${errorMessage(error)}`)
 					return
 				}
 				await self.sendAndRefresh(payload)

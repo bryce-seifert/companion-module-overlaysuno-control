@@ -1,5 +1,6 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
+import { parseJsonObject } from '../util.js'
 import { buildFieldActions } from './fields.js'
 
 export function getCustomizationActions(self: ModuleInstance): CompanionActionDefinitions {
@@ -18,20 +19,17 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 				},
 			],
 			callback: async (event) => {
-				let value: Record<string, unknown>
-				try {
-					value = JSON.parse(String(event.options.value))
-				} catch (e) {
-					self.log('error', `SetCustomization: invalid JSON - ${e}`)
+				const parsed = parseJsonObject(String(event.options.value))
+				if (!parsed.ok) {
+					self.log('error', `SetCustomization: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({ command: 'SetCustomization', value })
+				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value })
 			},
 			learn: async (event) => {
 				const values = await self.fetchLiveCustomization()
 				if (!values) return undefined
-				// Learn replaces the option set wholesale, so carry the existing options through.
-				// Pretty-printed so the learned JSON is actually editable in the textinput.
+				// Learn replaces options wholesale — carry existing ones through. Pretty-print for editing.
 				return { ...event.options, value: JSON.stringify(values, null, 2) }
 			},
 		},

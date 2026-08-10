@@ -3,6 +3,20 @@ import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
 import { overlayChoices } from './shared.js'
 
+const VISIBILITY_ACTION_COMMANDS = {
+	show: 'ShowOverlay',
+	hide: 'HideOverlay',
+	toggle: 'ToggleOverlay',
+	show_all: 'ShowAllOverlays',
+	hide_all: 'HideAllOverlays',
+} as const
+
+type VisibilityAction = keyof typeof VISIBILITY_ACTION_COMMANDS
+
+function isBulkVisibilityAction(action: string): action is 'show_all' | 'hide_all' {
+	return action === 'show_all' || action === 'hide_all'
+}
+
 export function getVisibilityActions(self: ModuleInstance): CompanionActionDefinitions {
 	const choices = overlayChoices(self)
 
@@ -34,19 +48,19 @@ export function getVisibilityActions(self: ModuleInstance): CompanionActionDefin
 				},
 			],
 			callback: async (event) => {
-				const action = String(event.options.action)
+				const action = String(event.options.action) as VisibilityAction
 
-				if (action === 'show_all' || action === 'hide_all') {
-					await self.sendAndRefresh({ command: action === 'show_all' ? 'ShowAllOverlays' : 'HideAllOverlays' })
+				if (isBulkVisibilityAction(action)) {
+					await self.sendAndRefresh({ command: VISIBILITY_ACTION_COMMANDS[action] })
 					return
 				}
 
-				const command = action === 'hide' ? 'HideOverlay' : action === 'toggle' ? 'ToggleOverlay' : 'ShowOverlay'
-				const payload: ApiPayload = { command }
-				const overlayId = String(event.options.overlayId ?? '')
-				if (overlayId) {
-					payload.id = overlayId
+				const payload: ApiPayload = {
+					command: VISIBILITY_ACTION_COMMANDS[action] ?? VISIBILITY_ACTION_COMMANDS.show,
 				}
+				const overlayId = String(event.options.overlayId ?? '')
+				if (overlayId) payload.id = overlayId
+
 				await self.sendAndRefresh(payload)
 			},
 		},

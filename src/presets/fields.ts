@@ -3,6 +3,7 @@ import type { OverlayModel, OverlayModelField } from '../api.js'
 import { fieldSetOption } from '../fields.js'
 import { ICON_ADD_1, ICON_MINUS_1, ICON_PAUSE_TIME, ICON_PLAY_TIME, ICON_RESET, ICON_RESTORE_TIME } from '../icons.js'
 import { COLOR } from '../style.js'
+import { FieldType, NUMERIC_FIELD_TYPES } from '../types.js'
 import { sanitizeName } from '../variables.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
@@ -56,25 +57,21 @@ function buildFieldPreset(
 ): void {
 	const type = field.type.toLowerCase()
 
-	if (config.showValueForNonNumeric && type !== 'button' && !isNumeric(type)) {
+	if (config.showValueForNonNumeric && type !== FieldType.Button && !NUMERIC_FIELD_TYPES.has(type)) {
 		buildValuePreset(field, presets, config)
 	}
 
-	if (isNumeric(type)) {
+	if (NUMERIC_FIELD_TYPES.has(type)) {
 		buildNumberPresets(field, presets, config)
-	} else if (type === 'checkbox') {
+	} else if (type === FieldType.Checkbox) {
 		buildCheckboxPreset(field, presets, config)
-	} else if (type === 'button') {
+	} else if (type === FieldType.Button) {
 		buildExecutePreset(field, presets, config)
-	} else if (type === 'timecontrol') {
+	} else if (type === FieldType.TimeControl) {
 		buildTimeControlPresets(field, presets, config)
 	} else {
 		buildSetPreset(field, presets, config)
 	}
-}
-
-function isNumeric(type: string): boolean {
-	return type === 'number' || type === 'counter' || type === 'normalizednumber'
 }
 
 function variableReference(config: FieldPresetConfig, field: OverlayModelField): string {

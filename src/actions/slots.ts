@@ -3,6 +3,17 @@ import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
 import { overlayChoices } from './shared.js'
 
+const SLOT_MODE_COMMANDS = {
+	first: 'TakeOverlayFirstSlot',
+	next: 'TakeOverlayNextSlot',
+	previous: 'TakeOverlayPreviousSlot',
+	last: 'TakeOverlayLastSlot',
+	name: 'TakeOverlaySlotName',
+	number: 'TakeOverlaySlotNumber',
+} as const
+
+type SlotMode = keyof typeof SLOT_MODE_COMMANDS
+
 export function getSlotActions(self: ModuleInstance): CompanionActionDefinitions {
 	const choices = overlayChoices(self)
 
@@ -51,31 +62,14 @@ export function getSlotActions(self: ModuleInstance): CompanionActionDefinitions
 				},
 			],
 			callback: async (event) => {
-				const mode = String(event.options.mode)
+				const mode = String(event.options.mode) as SlotMode
 				const id = String(event.options.overlayId)
+				const command = SLOT_MODE_COMMANDS[mode] ?? SLOT_MODE_COMMANDS.first
 
-				const payload: ApiPayload = { command: 'TakeOverlayFirstSlot', id }
-				switch (mode) {
-					case 'next':
-						payload.command = 'TakeOverlayNextSlot'
-						break
-					case 'previous':
-						payload.command = 'TakeOverlayPreviousSlot'
-						break
-					case 'last':
-						payload.command = 'TakeOverlayLastSlot'
-						break
-					case 'name':
-						payload.command = 'TakeOverlaySlotName'
-						payload.value = String(event.options.slotName)
-						break
-					case 'number':
-						payload.command = 'TakeOverlaySlotNumber'
-						payload.value = String(event.options.slotNumber)
-						break
-					default:
-						payload.command = 'TakeOverlayFirstSlot'
-				}
+				const payload: ApiPayload = { command, id }
+				if (mode === 'name') payload.value = String(event.options.slotName)
+				if (mode === 'number') payload.value = String(event.options.slotNumber)
+
 				await self.sendAndRefresh(payload)
 			},
 		},

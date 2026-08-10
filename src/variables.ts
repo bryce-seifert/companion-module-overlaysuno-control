@@ -1,6 +1,8 @@
 import type { CompanionVariableDefinition } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
 import { isSubCompositionVisible, hasPayload } from './api.js'
+import { FieldType, GLOBAL_OVERLAY_ID, type JsonValue } from './types.js'
+import { isPlainObject } from './util.js'
 
 export function sanitizeName(name: string): string {
 	return name
@@ -13,11 +15,16 @@ export type VariableValue = string | number | boolean
 
 const HEX6 = /^#?[0-9a-f]{6}$/i
 
-// An {r,g,b} colour object. Unambiguous, so it's treated as a colour with or without a model.
-export function isRgbObject(value: unknown): value is { r: number; g: number; b: number } {
-	if (typeof value !== 'object' || value === null) return false
-	const o = value as Record<string, unknown>
-	return typeof o.r === 'number' && typeof o.g === 'number' && typeof o.b === 'number'
+export interface RgbColor {
+	r: number
+	g: number
+	b: number
+}
+
+/** An {r,g,b} colour object — unambiguous, so treated as colour with or without a model. */
+export function isRgbObject(value: unknown): value is RgbColor {
+	if (!isPlainObject(value)) return false
+	return typeof value.r === 'number' && typeof value.g === 'number' && typeof value.b === 'number'
 }
 
 function hexByte(n: number): string {
@@ -26,18 +33,18 @@ function hexByte(n: number): string {
 		.padStart(2, '0')
 }
 
-// Normalize a color to "#rrggbb"
-export function normalizeColor(value: unknown, fieldType?: string): unknown {
+/** Normalize a color to "#rrggbb" when recognisable; otherwise return the value unchanged. */
+export function normalizeColor(value: JsonValue | unknown, fieldType?: string): JsonValue | unknown {
 	if (isRgbObject(value)) {
 		return `#${hexByte(value.r)}${hexByte(value.g)}${hexByte(value.b)}`
 	}
-	if (fieldType?.toLowerCase() === 'color' && typeof value === 'string' && HEX6.test(value)) {
+	if (fieldType?.toLowerCase() === FieldType.Color && typeof value === 'string' && HEX6.test(value)) {
 		return `#${value.replace('#', '').toLowerCase()}`
 	}
 	return value
 }
 
-// Format a field value for display. Objects are JSON-encoded.
+/** Format a field value for Companion variable display. Objects are JSON-encoded. */
 function formatValue(value: unknown): VariableValue {
 	if (value === null || value === undefined) return ''
 	if (typeof value === 'boolean') return value ? 'On' : 'Off'
@@ -49,6 +56,19 @@ interface VariableEntry {
 	variableId: string
 	name: string
 	value: VariableValue | undefined
+}
+
+function createUniqueNameTracker(): (subCompositionName: string) => { id: string; label: string } {
+	const nameCounts = new Map<string, number>()
+
+	return (subCompositionName) => {
+		const base = sanitizeName(subCompositionName)
+		const n = (nameCounts.get(base) ?? 0) + 1
+		nameCounts.set(base, n)
+		return n === 1
+			? { id: base, label: subCompositionName }
+			: { id: `${base}_${n}`, label: `${subCompositionName} (${n})` }
+	}
 }
 
 function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
@@ -76,13 +96,13 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 		)
 	}
 
-	// Global visibility variable for single-overlay apps (like Lucky Draw)
-	if (self.overlayList.length === 0 && self.overlayVisibility.has('global')) {
-		const visible = self.overlayVisibility.get('global')
+	// Global visibility variable for single-overlay apps (e.g. Lucky Draw).
+	if (self.overlayList.length === 0 && self.overlayVisibility.has(GLOBAL_OVERLAY_ID)) {
+		const visible = self.overlayVisibility.get(GLOBAL_OVERLAY_ID)
 		add('overlay_visible', 'Overlay Visible', visible ? 'true' : 'false')
 	}
 
-	// Per-overlay content field variables (driven by overlay models)
+	// Per-overlay content field variables (driven by overlay models).
 	for (const model of self.overlayModels) {
 		const safeOverlayName = sanitizeName(model.name)
 		const content = self.overlayContent.get(model.id) ?? {}
@@ -97,24 +117,13 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 		}
 	}
 
-	// Subcompositions with no model behind them
+	// Subcompositions with no model behind them (bespoke apps).
 	const modelledIds = new Set(self.overlayModels.map((m) => m.id))
-
-	// Subcomposition names are not unique in a bespoke app
-	const nameCounts = new Map<string, number>()
-	function uniqueName(subCompositionName: string): { id: string; label: string } {
-		const base = sanitizeName(subCompositionName)
-		const n = (nameCounts.get(base) ?? 0) + 1
-		nameCounts.set(base, n)
-		return n === 1
-			? { id: base, label: subCompositionName }
-			: { id: `${base}_${n}`, label: `${subCompositionName} (${n})` }
-	}
+	const uniqueName = createUniqueNameTracker()
 
 	for (const sub of self.controlState) {
 		if (sub.mainComposition || modelledIds.has(sub.subCompositionId)) continue
-		// Skip internal composition layers (infoLine, nameLogoScore, ...). They carry no data
-		// of their own, so all they'd contribute is a visibility variable nobody asked for.
+		// Skip internal composition layers that carry no data of their own.
 		if (!hasPayload(sub)) continue
 
 		const { id: safeName, label } = uniqueName(sub.subCompositionName)
@@ -133,7 +142,7 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 		}
 	}
 
-	// Customization field variables
+	// Customization field variables.
 	if (self.customizationModel) {
 		for (const field of self.customizationModel.model) {
 			const safeFieldName = sanitizeName(field.id)
@@ -144,7 +153,7 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 			)
 		}
 	} else {
-		// No customization model (bespoke app) - fall back to the raw mainComposition keys.
+		// No customization model (bespoke app) — fall back to raw mainComposition keys.
 		for (const [fieldId, value] of Object.entries(self.customizationValues)) {
 			add(`customize_${sanitizeName(fieldId)}`, `Customize - ${fieldId}`, formatValue(normalizeColor(value)))
 		}
@@ -163,8 +172,10 @@ export function UpdateVariableDefinitions(self: ModuleInstance): void {
 	self.setVariableDefinitions(variables)
 }
 
-// Push variable values, sending only the ones that actually changed since the last push.
-// `force` re-sends everything - use it when the definitions were just rebuilt
+/**
+ * Push variable values, sending only those that changed since the last push.
+ * Pass `force` after definitions were rebuilt so Companion gets a full refresh.
+ */
 export function UpdateVariableValues(self: ModuleInstance, force = false): void {
 	const values: Record<string, VariableValue | undefined> = {}
 	for (const entry of buildVariableEntries(self)) {

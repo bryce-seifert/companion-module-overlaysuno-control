@@ -1,18 +1,23 @@
+import { HttpStatus, VISIBLE_SUBCOMPOSITION_STATE, type JsonObject, type JsonValue } from './types.js'
+import { isPlainObject } from './util.js'
+
 const BASE_URL = 'https://app.overlays.uno/apiv2/controlapps'
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 
-export interface ApiPayload {
+/**
+ * Command payload sent via PUT /api.
+ * Known keys are typed; schema-defined commands may add extra argument ids.
+ */
+export type ApiPayload = {
 	command: string
 	id?: string
 	fieldId?: string
-	value?: string | number | boolean | Record<string, unknown>
-	content?: Record<string, unknown>
-	// Schema-defined commands (see schema-commands.ts) send arbitrary argument ids as extra keys.
-	[argId: string]: unknown
-}
+	value?: JsonValue
+	content?: JsonObject
+} & Record<string, JsonValue | undefined>
 
 export interface OverlayInfo {
 	id: string
@@ -26,29 +31,29 @@ export interface OverlayFieldSelection {
 }
 
 export interface OverlayModelField {
-	defaultValue: unknown
+	defaultValue: JsonValue
 	id: string
 	immediateUpdate: boolean
 	index: number
-	resetValue: unknown
+	resetValue: JsonValue
 	title: string
-	// Field editor type, e.g. 'text', 'number', 'checkbox', 'selection', 'color', 'metricfont'.
+	/** Field editor type, e.g. 'text', 'number', 'checkbox', 'selection', 'color'. */
 	type: string
-	// Present when type is 'selection' - the allowed enum values.
+	/** Present when type is 'selection' — the allowed enum values. */
 	selections?: OverlayFieldSelection[]
 }
 
 export interface OverlayModelGroup {
 	id: string
 	title: string
-	// Field ids belonging to this group, in display order.
+	/** Field ids belonging to this group, in display order. */
 	childIds: string[]
 	toolTip?: string
 	width?: string
 }
 
 export interface OverlayModel {
-	// Same overlay identifier as OverlayInfo.id - see the note there.
+	/** Same overlay identifier as OverlayInfo.id. */
 	id: string
 	name: string
 	model: OverlayModelField[]
@@ -59,25 +64,25 @@ export interface OverlayModel {
 export interface ApiResponse {
 	status: number
 	result: string
-	payload?: unknown
+	payload?: JsonValue
 }
 
 export interface ControlSubComposition {
 	subCompositionId: string
 	subCompositionName: string
-	// True for the app-level composition, whose payload holds the customization values.
+	/** True for the app-level composition, whose payload holds customization values. */
 	mainComposition: boolean
-	// Animation state. 'In' means on air; anything else ('Out1', ...) means hidden.
+	/** Animation state. 'In' means on air; anything else means hidden. */
 	state: string
-	payload?: Record<string, unknown>
+	payload?: JsonObject
 }
 
-// Whether a subcomposition is currently on air.
+/** Whether a subcomposition is currently on air. */
 export function isSubCompositionVisible(sub: ControlSubComposition): boolean {
-	return sub.state === 'In'
+	return sub.state === VISIBLE_SUBCOMPOSITION_STATE
 }
 
-// Whether a subcomposition carries data of its own
+/** Whether a subcomposition carries data of its own. */
 export function hasPayload(sub: ControlSubComposition): boolean {
 	return Object.keys(sub.payload ?? {}).length > 0
 }
@@ -100,7 +105,7 @@ export interface CommandArgument {
 	required?: boolean
 	min?: number
 	max?: number
-	// Present when type is 'selection' - the allowed enum values.
+	/** Present when type is 'selection' — the allowed enum values. */
 	selections?: OverlayFieldSelection[]
 }
 
@@ -116,6 +121,14 @@ export interface GroupEntry {
 
 export type ApiCommandEntry = CommandEntry | GroupEntry
 
+export function isCommandEntry(entry: ApiCommandEntry): entry is CommandEntry {
+	return 'command' in entry
+}
+
+export function isGroupEntry(entry: ApiCommandEntry): entry is GroupEntry {
+	return 'group' in entry
+}
+
 // ----------------------------------------------------------------
 // Error class
 // ----------------------------------------------------------------
@@ -124,7 +137,7 @@ export class ApiError extends Error {
 	constructor(
 		public statusCode: number,
 		message: string,
-		// Seconds to wait before retrying, from the Retry-After header. Only set on 429s.
+		/** Seconds to wait before retrying, from Retry-After. Only set on 429s. */
 		public retryAfter?: number,
 	) {
 		super(message)
@@ -132,14 +145,22 @@ export class ApiError extends Error {
 	}
 }
 
-// The API rejected the request because we're over its rate limit - a transient condition.
-export function isRateLimitError(e: unknown): e is ApiError {
-	return e instanceof ApiError && e.statusCode === 429
+/** Transient: the API rejected the request because we're over its rate limit. */
+export function isRateLimitError(error: unknown): error is ApiError {
+	return error instanceof ApiError && error.statusCode === HttpStatus.TooManyRequests
 }
 
-// The app doesn't implement this command at all - a permanent condition for this token.
-export function isUnsupportedCommandError(e: unknown): e is ApiError {
-	return e instanceof ApiError && e.statusCode === 400
+/** Permanent for this token: the app doesn't implement this command. */
+export function isUnsupportedCommandError(error: unknown): error is ApiError {
+	return error instanceof ApiError && error.statusCode === HttpStatus.BadRequest
+}
+
+// ----------------------------------------------------------------
+// Response parsers
+// ----------------------------------------------------------------
+
+function asArrayPayload<T>(payload: JsonValue | undefined): T[] {
+	return Array.isArray(payload) ? (payload as T[]) : []
 }
 
 // ----------------------------------------------------------------
@@ -179,10 +200,10 @@ async function request(url: string, init: RequestInit, options: RequestOptions):
 	const errorBody = await readErrorBody(response)
 	const detail = errorBody ? ` - ${errorBody}` : ''
 
-	if (response.status === 429) {
+	if (response.status === HttpStatus.TooManyRequests) {
 		throw new ApiError(response.status, `Rate limit exceeded for ${options.rateLimitTarget}`, parseRetryAfter(response))
 	}
-	if (response.status === 404 && options.notFoundMessage) {
+	if (response.status === HttpStatus.NotFound && options.notFoundMessage) {
 		throw new ApiError(response.status, `${options.notFoundMessage}${detail}`)
 	}
 	throw new ApiError(response.status, `${options.errorPrefix}: HTTP ${response.status}${detail}`)
@@ -208,10 +229,9 @@ export async function sendCommand(apiToken: string, payload: ApiPayload): Promis
 	)
 
 	try {
-		const data = (await response.json()) as ApiResponse
-		return data
+		return (await response.json()) as ApiResponse
 	} catch {
-		// Some commands may return empty responses on success
+		// Some commands return empty bodies on success.
 		return { status: response.status, result: 'ok' }
 	}
 }
@@ -222,17 +242,19 @@ export async function sendCommand(apiToken: string, payload: ApiPayload): Promis
 
 export async function getOverlays(apiToken: string): Promise<OverlayInfo[]> {
 	const res = await sendCommand(apiToken, { command: 'GetOverlays' })
-	return (res.payload as OverlayInfo[]) ?? []
+	return asArrayPayload<OverlayInfo>(res.payload)
 }
 
 export async function getOverlayModels(apiToken: string): Promise<OverlayModel[]> {
 	const res = await sendCommand(apiToken, { command: 'GetOverlayModels' })
-	return (res.payload as OverlayModel[]) ?? []
+	return asArrayPayload<OverlayModel>(res.payload)
 }
 
 export async function getCustomizationModel(apiToken: string): Promise<OverlayModel | null> {
 	const res = await sendCommand(apiToken, { command: 'GetCustomizationModel' })
-	return (res.payload as OverlayModel) ?? null
+	const payload = res.payload
+	if (isPlainObject(payload)) return payload as unknown as OverlayModel
+	return null
 }
 
 // ----------------------------------------------------------------
@@ -251,13 +273,13 @@ export async function getAppInfo(apiToken: string): Promise<AppInfo> {
 		},
 	)
 
-	const json = (await response.json()) as AppInfo
-	return json
+	return (await response.json()) as AppInfo
 }
 
-// Normalize the thumbnail URL from AppInfo
+/** Normalize the thumbnail URL from AppInfo (protocol-relative / missing scheme / size). */
 export function normalizeThumbnailUrl(thumbnail: string): string {
 	if (!thumbnail) return ''
+
 	let url = thumbnail.trim()
 	if (url.startsWith('//')) {
 		url = `https:${url}`
@@ -267,8 +289,10 @@ export function normalizeThumbnailUrl(thumbnail: string): string {
 	return url.replace('fit-in/150x150', 'fit-in/288x288')
 }
 
-// Fetch the app thumbnail and return it as a base64 data URI suitable for a button's
-// `png64`. Returns null if there is no thumbnail or the fetch fails.
+/**
+ * Fetch the app thumbnail as a base64 data URI for button `png64`.
+ * Returns null when there is no thumbnail URL.
+ */
 export async function fetchThumbnailDataUri(thumbnail: string): Promise<string | null> {
 	const url = normalizeThumbnailUrl(thumbnail)
 	if (!url) return null
@@ -287,7 +311,7 @@ export async function fetchThumbnailDataUri(thumbnail: string): Promise<string |
 	return `data:${contentType};base64,${buffer.toString('base64')}`
 }
 
-// Fetch the app's live datastore
+/** Fetch the app's live datastore (visibility + content + customization). */
 export async function getControlState(apiToken: string): Promise<ControlSubComposition[]> {
 	const url = `${BASE_URL}/${apiToken}/control`
 
@@ -300,8 +324,8 @@ export async function getControlState(apiToken: string): Promise<ControlSubCompo
 		},
 	)
 
-	const json = (await response.json()) as ControlSubComposition[]
-	return Array.isArray(json) ? json : []
+	const json: unknown = await response.json()
+	return Array.isArray(json) ? (json as ControlSubComposition[]) : []
 }
 
 export async function getApiSchema(apiToken: string): Promise<ApiCommandEntry[]> {
@@ -316,15 +340,14 @@ export async function getApiSchema(apiToken: string): Promise<ApiCommandEntry[]>
 		},
 	)
 
-	const json = (await response.json()) as ApiCommandEntry[]
-	return json
+	return (await response.json()) as ApiCommandEntry[]
 }
 
-// Extract the set of command names from an API schema.
+/** Extract the set of command names from an API schema. */
 export function getAvailableCommands(schema: ApiCommandEntry[]): Set<string> {
 	const commands = new Set<string>()
 	for (const entry of schema) {
-		if ('command' in entry) {
+		if (isCommandEntry(entry)) {
 			commands.add(entry.command)
 		}
 	}

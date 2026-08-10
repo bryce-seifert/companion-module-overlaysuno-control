@@ -1,12 +1,14 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
+import { parseJsonValueOrString } from '../util.js'
 
 export function getCustomActions(self: ModuleInstance): CompanionActionDefinitions {
 	return {
 		send_custom_command: {
 			name: 'Custom - Send Command',
-			description: 'Send any command to the Overlays Uno API. Use this for overlay types with unique commands.',
+			description:
+				'Send an arbitrary command to the Overlays Uno API. Use this for overlay types with unique commands.',
 			options: [
 				{
 					id: 'command',
@@ -53,12 +55,7 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 
 				const value = String(event.options.value ?? '')
 				if (value) {
-					// Try to parse as JSON for structured values, fall back to string
-					try {
-						payload.value = JSON.parse(value)
-					} catch {
-						payload.value = value
-					}
+					payload.value = parseJsonValueOrString(value)
 				}
 
 				const id = String(event.options.id ?? '')

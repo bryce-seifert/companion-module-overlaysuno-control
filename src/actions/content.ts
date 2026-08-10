@@ -1,5 +1,6 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
+import { parseJsonObject } from '../util.js'
 import { buildFieldActions } from './fields.js'
 import { overlayChoices } from './shared.js'
 
@@ -36,14 +37,16 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 				},
 			],
 			callback: async (event) => {
-				let content: Record<string, unknown>
-				try {
-					content = JSON.parse(String(event.options.content))
-				} catch (e) {
-					self.log('error', `SetOverlayContent: invalid JSON - ${e}`)
+				const parsed = parseJsonObject(String(event.options.content))
+				if (!parsed.ok) {
+					self.log('error', `SetOverlayContent: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({ command: 'SetOverlayContent', id: String(event.options.overlayId), content })
+				await self.sendAndRefresh({
+					command: 'SetOverlayContent',
+					id: String(event.options.overlayId),
+					content: parsed.value,
+				})
 			},
 			learn: async (event) => {
 				const content = await self.fetchLiveContent(String(event.options.overlayId))

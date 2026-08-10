@@ -1,21 +1,24 @@
 import type { ModuleInstance } from './main.js'
 import type { ControlSubComposition, OverlayModel, OverlayModelField } from './api.js'
 import { hasPayload } from './api.js'
+import { FieldType, type JsonObject, type JsonValue } from './types.js'
 import { isRgbObject } from './variables.js'
 
-// Bespoke control apps that are not supported by GetOverlayModels, so they have no field titles or types - but
-// /control still reports every field's live value
-function inferFieldType(value: unknown): string | undefined {
-	if (typeof value === 'boolean') return 'checkbox'
-	// Checked before `number`/`object`: an {r,g,b} object is unambiguously a colour.
-	if (isRgbObject(value)) return 'color'
-	if (typeof value === 'number') return 'number'
-	if (typeof value === 'string') return 'text'
+/**
+ * Bespoke apps often 400 on GetOverlayModels, so they have no field titles/types —
+ * but /control still reports every field's live value. Infer a usable type from that.
+ */
+function inferFieldType(value: JsonValue): string | undefined {
+	if (typeof value === 'boolean') return FieldType.Checkbox
+	// Checked before number/object: an {r,g,b} object is unambiguously a colour.
+	if (isRgbObject(value)) return FieldType.Color
+	if (typeof value === 'number') return FieldType.Number
+	if (typeof value === 'string') return FieldType.Text
 	return undefined
 }
 
-// The datastore key is the only name available, so it serves as both id and title.
-function inferFields(payload: Record<string, unknown>): OverlayModelField[] {
+/** The datastore key is the only name available, so it serves as both id and title. */
+function inferFields(payload: JsonObject): OverlayModelField[] {
 	const fields: OverlayModelField[] = []
 
 	for (const [id, value] of Object.entries(payload)) {
@@ -36,13 +39,15 @@ function inferFields(payload: Record<string, unknown>): OverlayModelField[] {
 	return fields
 }
 
-// Subcompositions carrying data of their own, in /control order.
+/** Subcompositions carrying data of their own, in /control order. */
 function contentSubCompositions(self: ModuleInstance): ControlSubComposition[] {
 	return self.controlState.filter((s) => !s.mainComposition && hasPayload(s))
 }
 
-// Overlay models to drive read-only content lookups: the real ones when the app provides them,
-// otherwise a best-effort reconstruction from the live /control payloads.
+/**
+ * Overlay models for read-only content lookups: real models when available,
+ * otherwise a best-effort reconstruction from live /control payloads.
+ */
 export function inferredContentModels(self: ModuleInstance): OverlayModel[] {
 	if (self.overlayModels.length > 0) return self.overlayModels
 
@@ -55,12 +60,17 @@ export function inferredContentModels(self: ModuleInstance): OverlayModel[] {
 	}))
 }
 
-// Resolve a Show/Hide/Toggle schema command to boolean datastore field
+const VISIBILITY_COMMAND_PREFIXES = ['Show', 'Hide', 'Toggle'] as const
+
+/**
+ * Resolve a Show/Hide/Toggle schema command to a boolean datastore field,
+ * so generated presets can light a feedback when that field is on.
+ */
 export function resolveVisibilityField(
 	self: ModuleInstance,
 	command: string,
 ): { overlayId: string; fieldId: string } | undefined {
-	const prefix = ['Show', 'Hide', 'Toggle'].find((p) => command.startsWith(p))
+	const prefix = VISIBILITY_COMMAND_PREFIXES.find((p) => command.startsWith(p))
 	if (!prefix) return undefined
 
 	const stem = command.slice(prefix.length)

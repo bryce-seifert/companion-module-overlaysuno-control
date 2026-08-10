@@ -3,20 +3,21 @@ import type { ModuleInstance } from './main.js'
 import { hasPayload } from './api.js'
 import { buildFieldValueInputs } from './fields.js'
 import { inferredContentModels } from './inferred-model.js'
+import { GLOBAL_OVERLAY_ID, type DropdownChoice, type JsonValue } from './types.js'
 import { normalizeColor } from './variables.js'
 
-function contentMatches(live: unknown, expected: string | number | boolean, fieldType?: string): boolean {
+function contentMatches(live: JsonValue | undefined, expected: string | number | boolean, fieldType?: string): boolean {
 	if (live === null || live === undefined) return false
 
 	const value = normalizeColor(live, fieldType)
 
-	// Checkbox/toggle fields. Some apps store the flag as a string, hence the loose fallback.
+	// Checkbox/toggle fields. Some apps store the flag as a string — keep a loose fallback.
 	if (typeof expected === 'boolean') {
 		return value === expected || String(value) === String(expected)
 	}
 
-	// Structured values (a font spec, a gradient) - compare their JSON form.
-	if (typeof value === 'object') {
+	// Structured values (font spec, gradient) — compare their JSON form.
+	if (typeof value === 'object' && value !== null) {
 		return JSON.stringify(value) === String(expected)
 	}
 
@@ -25,19 +26,18 @@ function contentMatches(live: unknown, expected: string | number | boolean, fiel
 		return false
 	}
 
-	// Numeric fields, compared numerically so a user typing "40" still matches a stored "40.0".
+	// Numeric fields: compare numerically so "40" still matches stored "40.0".
 	const liveNum = Number(value)
 	const expectedNum = Number(expected)
 	if (value !== '' && expected !== '' && Number.isFinite(liveNum) && Number.isFinite(expectedNum)) {
 		return liveNum === expectedNum
 	}
 
-	// Text and selection fields.
 	return String(value) === String(expected)
 }
 
-// Overlays selectable in the visibility feedback
-function visibilityChoices(self: ModuleInstance): { id: string; label: string }[] {
+/** Overlays selectable in the visibility feedback. */
+function visibilityChoices(self: ModuleInstance): DropdownChoice[] {
 	if (self.overlayChoices.length > 0) return self.overlayChoices
 
 	const subs = self.controlState
@@ -50,15 +50,13 @@ function visibilityChoices(self: ModuleInstance): { id: string; label: string }[
 export function UpdateFeedbacks(self: ModuleInstance): void {
 	const overlayChoices = visibilityChoices(self)
 
-	// Same type-aware value editors the Set Content Field action uses, so the feedback's value
-	// input matches the selected field's type. Bespoke apps have no models, so fall back to the
-	// field list inferred from the live /control payloads - this feedback is read-only, so
-	// unlike the actions there's no risk of offering a field the app can't be told to change.
+	// Same type-aware value editors the Set Content Field action uses.
+	// Bespoke apps have no models, so fall back to fields inferred from /control payloads.
 	const contentModels = inferredContentModels(self)
 	const contentFields = contentModels.flatMap((m) => m.model)
 	const contentInputs = buildFieldValueInputs(contentFields)
 	const contentFieldTypes = new Map(contentFields.map((f) => [f.id, f.type]))
-	const contentOverlays =
+	const contentOverlays: DropdownChoice[] =
 		contentModels.length > 0
 			? contentModels.map((m) => ({ id: m.id, label: m.name }))
 			: [{ id: '', label: 'No overlays loaded' }]
@@ -108,8 +106,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const learned = contentInputs.learnValue(feedback.options, content[String(feedback.options.fieldId)])
 				if (!learned) return undefined
 
-				// Learn replaces the option set wholesale, so carry the existing options through -
-				// returning only the learned value key would blank out overlayId and fieldId.
+				// Learn replaces the option set wholesale — carry existing options through.
 				return { ...feedback.options, ...learned }
 			},
 		},
@@ -164,8 +161,8 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				},
 			],
 			callback: (feedback) => {
-				// Single-overlay apps store visibility under 'global'; those presets pass an empty overlayId.
-				const overlayId = String(feedback.options.overlayId) || 'global'
+				// Single-overlay apps store visibility under 'global'; those presets pass ''.
+				const overlayId = String(feedback.options.overlayId) || GLOBAL_OVERLAY_ID
 				return self.overlayVisibility.get(overlayId) === true
 			},
 		},
