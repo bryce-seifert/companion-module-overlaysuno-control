@@ -1,5 +1,5 @@
 import { InstanceBase, runEntrypoint, InstanceStatus, type SomeCompanionConfigField } from '@companion-module/base'
-import { GetConfigFields, type ModuleConfig } from './config.js'
+import { GetConfigFields, type ModuleConfig, type ModuleSecrets } from './config.js'
 import { UpdateVariableDefinitions, UpdateVariableValues, type VariableValue } from './variables.js'
 import { UpgradeScripts } from './upgrades.js'
 import { UpdateActions } from './actions.js'
@@ -38,9 +38,9 @@ import { errorMessage, maskApiToken } from './util.js'
 
 export type OverlayChoice = DropdownChoice
 
-export class ModuleInstance extends InstanceBase<ModuleConfig> {
-	config!: ModuleConfig // Setup in init()
-
+export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
+	config!: ModuleConfig
+	secrets!: ModuleSecrets
 	// Connection State
 	appInfo: AppInfo | null = null
 	appThumbnailPng64: string | null = null
@@ -84,12 +84,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	/** Bumped on destroy / reconnect so in-flight work ignores stale results. */
 	private connectionEpoch = 0
 
-	constructor(internal: ConstructorParameters<typeof InstanceBase<ModuleConfig>>[0]) {
+	constructor(internal: ConstructorParameters<typeof InstanceBase<ModuleConfig, ModuleSecrets>>[0]) {
 		super(internal)
 	}
 
-	async init(config: ModuleConfig): Promise<void> {
+	async init(config: ModuleConfig, _isFirstInit: boolean, secrets: ModuleSecrets): Promise<void> {
 		this.config = config
+		this.secrets = secrets
 
 		this.updateActions()
 		this.updateFeedbacks()
@@ -109,8 +110,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.log('debug', 'destroy')
 	}
 
-	async configUpdated(config: ModuleConfig): Promise<void> {
+	async configUpdated(config: ModuleConfig, secrets: ModuleSecrets): Promise<void> {
 		this.config = config
+		this.secrets = secrets
 		this.startConnection()
 	}
 
@@ -178,22 +180,23 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async initConnection(epoch: number): Promise<void> {
 		this.clearState()
 
-		if (!this.config.apiToken) {
+		const apiToken = this.secrets?.apiToken
+		if (!apiToken) {
 			this.updateStatus(InstanceStatus.BadConfig, 'API Token is required')
 			return
 		}
 
-		this.log('debug', `Connecting with token ${maskApiToken(this.config.apiToken)}`)
+		this.log('debug', `Connecting with token ${maskApiToken(apiToken)}`)
 		this.updateStatus(InstanceStatus.Connecting)
 
 		try {
-			const appInfo = await getAppInfo(this.config.apiToken)
+			const appInfo = await getAppInfo(apiToken)
 			if (epoch !== this.connectionEpoch) return
 			this.appInfo = appInfo
 
 			await this.fetchAppThumbnail(epoch)
 
-			const commandSchema = await getApiSchema(this.config.apiToken)
+			const commandSchema = await getApiSchema(apiToken)
 			if (epoch !== this.connectionEpoch) return
 			this.commandSchema = commandSchema
 			this.availableCommands = getAvailableCommands(this.commandSchema)
@@ -326,7 +329,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		await this.fetchStructure(
 			epoch,
 			'GetOverlays',
-			async () => getOverlays(this.config.apiToken),
+			async () => getOverlays(this.secrets.apiToken),
 			(overlays) => {
 				this.overlayList = overlays
 			},
@@ -334,7 +337,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		await this.fetchStructure(
 			epoch,
 			'GetOverlayModels',
-			async () => getOverlayModels(this.config.apiToken),
+			async () => getOverlayModels(this.secrets.apiToken),
 			(models) => {
 				this.overlayModels = models
 			},
@@ -342,7 +345,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		await this.fetchStructure(
 			epoch,
 			'GetCustomizationModel',
-			async () => getCustomizationModel(this.config.apiToken),
+			async () => getCustomizationModel(this.secrets.apiToken),
 			(model) => {
 				this.customizationModel = model
 			},
@@ -389,7 +392,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			}
 		}
 
-		const request = getControlState(this.config.apiToken).finally(() => {
+		const request = getControlState(this.secrets.apiToken).finally(() => {
 			if (this.controlStateInFlight === request) {
 				this.controlStateInFlight = null
 			}
@@ -603,7 +606,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	 */
 	async sendAndRefresh(payload: ApiPayload): Promise<void> {
 		try {
-			await sendCommand(this.config.apiToken, payload)
+			await sendCommand(this.secrets.apiToken, payload)
 			this.refreshAfterAction()
 		} catch (error) {
 			this.log('error', `${payload.command} failed: ${error}`)
