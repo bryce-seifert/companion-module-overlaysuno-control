@@ -11,9 +11,9 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const iconsDir = path.join(rootDir, 'icons')
 const outFile = path.join(rootDir, 'src', 'icons.ts')
 
-// Source icons are 144x144 and fill the frame edge-to-edge. Shrink them so they
-// read as a small top-aligned icon rather than covering the whole button.
-const ICON_SIZE_PX = 96
+// Downsize icon to half height so that vertical alignment works
+const ICON_SIZE_PX = 144
+const CANVAS_WIDTH_PX = ICON_SIZE_PX * 1.5
 
 /** "Slot Take First_Key Icon.png" -> "ICON_SLOT_TAKE_FIRST" */
 function constNameFor(filename) {
@@ -53,6 +53,8 @@ try {
 		execFileSync('sips', ['-Z', String(ICON_SIZE_PX), path.join(iconsDir, filename), '--out', resizedPath], {
 			stdio: 'ignore',
 		})
+		// `sips -p` centers the existing pixels in the new canvas, padding with transparency.
+		execFileSync('sips', ['-p', String(ICON_SIZE_PX), String(CANVAS_WIDTH_PX), resizedPath], { stdio: 'ignore' })
 
 		const data = readFileSync(resizedPath).toString('base64')
 		lines.push(`export const ${constName} = 'data:image/png;base64,${data}'`)
