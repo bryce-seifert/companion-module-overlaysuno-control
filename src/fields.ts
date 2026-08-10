@@ -29,7 +29,7 @@ function colorNumberToHex(n: number): string {
 }
 
 /** Human-readable suffix so fields with duplicate titles stay distinguishable. */
-function fieldTypeLabel(type: string): string {
+export function fieldTypeLabel(type: string): string {
 	switch (type) {
 		case FieldType.Color:
 			return 'Color'
@@ -52,8 +52,8 @@ function fieldTypeLabel(type: string): string {
 	}
 }
 
-/** Dropdown label for a field: its title plus a type hint (e.g. "Title (Color)"). */
-function fieldChoiceLabel(field: OverlayModelField): string {
+/** Dropdown / button label for a field: its title plus a type hint (e.g. "Title (Color)"). */
+export function fieldChoiceLabel(field: OverlayModelField): string {
 	const suffix = fieldTypeLabel(field.type)
 	return suffix ? `${field.title} (${suffix})` : field.title
 }

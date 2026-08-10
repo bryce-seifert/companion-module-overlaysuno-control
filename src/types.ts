@@ -69,5 +69,11 @@ export const NUMERIC_FIELD_TYPES: ReadonlySet<string> = new Set([
 	FieldType.NormalizedNumber,
 ])
 
+/**
+ * Field types whose live values are structured JSON (e.g. font specs).
+ * These are useless as button text — presets should show only the field label.
+ */
+export const STRUCTURED_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.MetricFont])
+
 /** Subcomposition animation state that means "on air". */
 export const VISIBLE_SUBCOMPOSITION_STATE = 'In'

@@ -17,7 +17,7 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 		},
 		targetOptions: { overlayId: model.id },
 		variableId: (field) => fieldVariableId(`overlay_${sanitizeName(model.name)}_`, field),
-		setText: (field) => `Set ${field.title}`,
+		setText: (label) => `Set ${label}`,
 		showValueForNonNumeric: true,
 		valuePrefixCurrent: true,
 		valueBgcolor: COLOR.ink,

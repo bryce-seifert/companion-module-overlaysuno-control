@@ -1,9 +1,9 @@
 import type { CompanionButtonPresetDefinition, CompanionPresetDefinitions, InputValue } from '@companion-module/base'
 import type { OverlayModel, OverlayModelField } from '../api.js'
-import { fieldSetOption } from '../fields.js'
+import { fieldChoiceLabel, fieldSetOption } from '../fields.js'
 import { ICON_ADD_1, ICON_MINUS_1, ICON_PAUSE_TIME, ICON_PLAY_TIME, ICON_RESET, ICON_RESTORE_TIME } from '../icons.js'
 import { COLOR } from '../style.js'
-import { FieldType, NUMERIC_FIELD_TYPES } from '../types.js'
+import { FieldType, NUMERIC_FIELD_TYPES, STRUCTURED_FIELD_TYPES } from '../types.js'
 import { sanitizeName } from '../variables.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
@@ -21,7 +21,8 @@ export interface FieldPresetConfig {
 	}
 	targetOptions: Record<string, InputValue>
 	variableId: (field: OverlayModelField) => string
-	setText: (field: OverlayModelField, variableReference: string) => string
+	/** Button text for Set presets. `label` already includes a type suffix when useful (e.g. "Title (Color)"). */
+	setText: (label: string, variableReference: string) => string
 	showValueForNonNumeric: boolean
 	valuePrefixCurrent: boolean
 	valueBgcolor: number
@@ -57,7 +58,13 @@ function buildFieldPreset(
 ): void {
 	const type = field.type.toLowerCase()
 
-	if (config.showValueForNonNumeric && type !== FieldType.Button && !NUMERIC_FIELD_TYPES.has(type)) {
+	// Skip value-on-button presets for structured JSON fields (fonts, etc.) — the blob won't fit.
+	if (
+		config.showValueForNonNumeric &&
+		type !== FieldType.Button &&
+		!NUMERIC_FIELD_TYPES.has(type) &&
+		!STRUCTURED_FIELD_TYPES.has(type)
+	) {
 		buildValuePreset(field, presets, config)
 	}
 
@@ -72,6 +79,11 @@ function buildFieldPreset(
 	} else {
 		buildSetPreset(field, presets, config)
 	}
+}
+
+/** True when a field's live value is short enough to show on a Stream Deck button. */
+function canShowValueOnButton(field: OverlayModelField): boolean {
+	return !STRUCTURED_FIELD_TYPES.has(field.type.toLowerCase())
 }
 
 function variableReference(config: FieldPresetConfig, field: OverlayModelField): string {
@@ -92,12 +104,15 @@ function buildSetPreset(
 	config: FieldPresetConfig,
 ): void {
 	const setOption = fieldSetOption(field)
+	const label = fieldChoiceLabel(field)
+	// Structured values (e.g. metricfont) render as huge JSON — label only on the button.
+	const valueRef = canShowValueOnButton(field) ? variableReference(config, field) : ''
 	presets[config.presetKey('set', field)] = {
 		type: 'button',
 		category: config.category,
-		name: `Set: ${field.title}`,
+		name: `Set: ${label}`,
 		style: {
-			text: config.setText(field, variableReference(config, field)),
+			text: config.setText(label, valueRef),
 			size: '14',
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
