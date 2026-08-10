@@ -296,7 +296,7 @@ function buildExecutePreset(
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
-			alignment: 'center:bottom',
+			alignment: 'center:center',
 		},
 		steps: [
 			{
