@@ -20,7 +20,6 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 		setText: (label) => `Set ${label}`,
 		showValueForNonNumeric: true,
 		valuePrefixCurrent: true,
-		valueBgcolor: COLOR.ink,
 		checkboxFeedbacks: (field) => [
 			{
 				feedbackId: 'overlay_content_field',

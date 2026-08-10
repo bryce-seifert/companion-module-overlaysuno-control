@@ -25,7 +25,6 @@ export interface FieldPresetConfig {
 	setText: (label: string, variableReference: string) => string
 	showValueForNonNumeric: boolean
 	valuePrefixCurrent: boolean
-	valueBgcolor: number
 	checkboxFeedbacks: (field: OverlayModelField) => CompanionButtonPresetDefinition['feedbacks']
 }
 
@@ -147,7 +146,8 @@ function buildValuePreset(
 			text: `${config.valuePrefixCurrent ? 'Current ' : ''}${field.title}\\n${variableReference(config, field)}`,
 			size: '14',
 			color: COLOR.white,
-			bgcolor: config.valueBgcolor,
+			// Read-only status buttons share the darker background so they stand out from actionable buttons.
+			bgcolor: COLOR.ink,
 			show_topbar: false,
 		},
 		steps: [],

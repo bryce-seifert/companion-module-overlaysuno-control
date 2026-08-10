@@ -14,7 +14,7 @@ export function buildThumbnailPresets(self: ModuleInstance, presets: CompanionPr
 			text: '',
 			size: 'auto',
 			color: COLOR.white,
-			bgcolor: COLOR.surface,
+			bgcolor: COLOR.ink,
 			show_topbar: false,
 			...(self.appThumbnailPng64 ? { png64: self.appThumbnailPng64 } : {}),
 		},
