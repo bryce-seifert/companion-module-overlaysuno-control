@@ -71,12 +71,18 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	private lastDefinitionsFingerprint = ''
 	private lastVisibilityFingerprint = ''
 	private lastContentFingerprint = ''
+	private lastCustomizationFingerprint = ''
 
 	private pollTimer: ReturnType<typeof setInterval> | undefined
+	private pollRetryTimer: ReturnType<typeof setTimeout> | undefined
 	private reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	private refreshTimer: ReturnType<typeof setTimeout> | undefined
 	private refreshInFlight = false
 	private refreshPending = false
+	// Shared in-flight GET /control so poll, post-action refresh, and Learn don't overlap.
+	private controlStateInFlight: Promise<ControlSubComposition[]> | null = null
+	// Bumped on destroy / reconnect so in-flight work ignores stale results.
+	private connectionEpoch = 0
 
 	constructor(internal: unknown) {
 		super(internal)
@@ -95,24 +101,30 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	}
 
 	async destroy(): Promise<void> {
+		this.connectionEpoch++
+		this.controlStateInFlight = null
 		this.stopPolling()
+		this.clearPollRetry()
 		this.clearReconnect()
-		if (this.refreshTimer) {
-			clearTimeout(this.refreshTimer)
-			this.refreshTimer = undefined
-		}
+		this.clearRefresh()
 		this.log('debug', 'destroy')
 	}
 
 	async configUpdated(config: ModuleConfig): Promise<void> {
 		this.config = config
-		this.stopPolling()
-		this.clearReconnect()
 		this.startConnection()
 	}
 
 	private startConnection(): void {
-		this.initConnection().catch((e) => {
+		const epoch = ++this.connectionEpoch
+		this.controlStateInFlight = null
+		this.stopPolling()
+		this.clearPollRetry()
+		this.clearReconnect()
+		this.clearRefresh()
+
+		this.initConnection(epoch).catch((e) => {
+			if (epoch !== this.connectionEpoch) return
 			const message = e instanceof Error ? e.message : String(e)
 			this.updateStatus(InstanceStatus.ConnectionFailure, message)
 			this.log('error', `Connection failed: ${message}`)
@@ -155,9 +167,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.lastDefinitionsFingerprint = ''
 		this.lastVisibilityFingerprint = ''
 		this.lastContentFingerprint = ''
+		this.lastCustomizationFingerprint = ''
 	}
 
-	async initConnection(): Promise<void> {
+	async initConnection(epoch: number): Promise<void> {
 		this.clearState()
 
 		if (!this.config.apiToken) {
@@ -172,28 +185,36 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 		try {
 			// Validate token via GET endpoint
-			this.appInfo = await getAppInfo(this.config.apiToken)
+			const appInfo = await getAppInfo(this.config.apiToken)
+			if (epoch !== this.connectionEpoch) return
+			this.appInfo = appInfo
 
 			// For now, the thumbnail is static for the lifetime of a connection - fetch it once here
 			if (this.appInfo.thumbnail) {
 				try {
-					this.appThumbnailPng64 = await fetchThumbnailDataUri(this.appInfo.thumbnail)
+					const thumbnail = await fetchThumbnailDataUri(this.appInfo.thumbnail)
+					if (epoch !== this.connectionEpoch) return
+					this.appThumbnailPng64 = thumbnail
 				} catch (e) {
 					this.log('debug', `Failed to fetch app thumbnail: ${e}`)
 				}
 			}
 
 			// Discover available commands
-			this.commandSchema = await getApiSchema(this.config.apiToken)
+			const commandSchema = await getApiSchema(this.config.apiToken)
+			if (epoch !== this.connectionEpoch) return
+			this.commandSchema = commandSchema
 			this.availableCommands = getAvailableCommands(this.commandSchema)
 			this.log('debug', `Discovered ${this.availableCommands.size} available command(s)`)
 			this.log('debug', `API schema for "${this.appInfo.name}":\n${JSON.stringify(this.commandSchema, null, 2)}`)
 
 			// Overlay list and field models are static for the life of the connection
-			await this.discoverStructure()
+			await this.discoverStructure(epoch)
+			if (epoch !== this.connectionEpoch) return
 
 			// Poll data based on available commands
 			await this.pollData()
+			if (epoch !== this.connectionEpoch) return
 
 			if (this.overlayModels.length > 0) {
 				this.log('debug', `Overlay models:\n${JSON.stringify(this.overlayModels, null, 2)}`)
@@ -209,6 +230,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			}
 			this.startPolling()
 		} catch (e) {
+			if (epoch !== this.connectionEpoch) return
 			if (isRateLimitError(e)) {
 				// Rate Limited State
 				const retryIn = e.retryAfter ?? CONNECT_RETRY_SECONDS
@@ -225,9 +247,11 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 	// Run one poll cycle. A 429 anywhere inside aborts the rest of the cycle
 	async pollData(): Promise<void> {
+		const epoch = this.connectionEpoch
 		try {
-			await this.runPollCycle()
+			await this.runPollCycle(epoch)
 		} catch (e) {
+			if (epoch !== this.connectionEpoch) return
 			if (isRateLimitError(e)) {
 				this.onRateLimited(e)
 				return
@@ -235,15 +259,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			throw e
 		}
 
+		if (epoch !== this.connectionEpoch) return
 		this.onPollSucceeded()
 	}
 
 	private onRateLimited(e: ApiError): void {
+		const retryIn = e.retryAfter ?? (this.config.pollInterval || 60)
+
+		// Stop the normal interval and wait for Retry-After before the next poll.
+		this.stopPolling()
+		this.schedulePollRetry(retryIn)
+
 		// Only announce the transition into the rate-limited state.
 		if (this.rateLimited) return
 		this.rateLimited = true
-
-		const retryIn = e.retryAfter ?? (this.config.pollInterval || 60)
 
 		this.updateStatus(InstanceStatus.UnknownWarning, 'API Rate Limit Exceeded')
 		this.log('warn', `Overlays.uno API rate limit exceeded. Will retry in ${retryIn}s.`)
@@ -252,15 +281,26 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	private onPollSucceeded(): void {
 		if (!this.rateLimited) return
 		this.rateLimited = false
+		this.clearPollRetry()
 		this.updateStatus(InstanceStatus.Ok)
 		this.log('info', 'Overlays.uno API rate limit cleared, normal operation resumed')
+		// Resume the normal interval (also covers an early recovery via post-action refresh).
+		this.startPolling()
 	}
 
 	// Fetch one piece of the app's structure via a Get* command
-	private async fetchStructure<T>(command: string, fetch: () => Promise<T>, apply: (result: T) => void): Promise<void> {
+	private async fetchStructure<T>(
+		epoch: number,
+		command: string,
+		fetch: () => Promise<T>,
+		apply: (result: T) => void,
+	): Promise<void> {
 		try {
-			apply(await fetch())
+			const result = await fetch()
+			if (epoch !== this.connectionEpoch) return
+			apply(result)
 		} catch (e) {
+			if (epoch !== this.connectionEpoch) return
 			if (isRateLimitError(e)) throw e
 			if (isUnsupportedCommandError(e)) {
 				this.unsupportedCommands.add(command)
@@ -272,8 +312,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	}
 
 	// Fetch the app's structure - the overlay list and the field models behind it
-	private async discoverStructure(): Promise<void> {
+	private async discoverStructure(epoch: number): Promise<void> {
 		await this.fetchStructure(
+			epoch,
 			'GetOverlays',
 			async () => getOverlays(this.config.apiToken),
 			(overlays) => {
@@ -281,6 +322,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			},
 		)
 		await this.fetchStructure(
+			epoch,
 			'GetOverlayModels',
 			async () => getOverlayModels(this.config.apiToken),
 			(models) => {
@@ -288,6 +330,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			},
 		)
 		await this.fetchStructure(
+			epoch,
 			'GetCustomizationModel',
 			async () => getCustomizationModel(this.config.apiToken),
 			(model) => {
@@ -320,9 +363,35 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		}
 	}
 
+	// Shared GET /control - concurrent readers join the same request. A post-action refresh
+	// waits for an older request to finish, then starts a fresh request so it cannot publish
+	// state captured before the mutation.
+	private async fetchControlState(forceFresh = false): Promise<ControlSubComposition[]> {
+		if (this.controlStateInFlight && !forceFresh) return this.controlStateInFlight
+
+		while (forceFresh && this.controlStateInFlight) {
+			try {
+				await this.controlStateInFlight
+			} catch {
+				// The fresh request below should still be attempted.
+			}
+		}
+
+		const request = getControlState(this.config.apiToken).finally(() => {
+			if (this.controlStateInFlight === request) {
+				this.controlStateInFlight = null
+			}
+		})
+		this.controlStateInFlight = request
+		return request
+	}
+
 	// One GET returns visibility + content for every subcomposition
-	private async runPollCycle(): Promise<void> {
-		this.applyControlState(await getControlState(this.config.apiToken))
+	private async runPollCycle(epoch: number): Promise<void> {
+		const subs = await this.fetchControlState()
+		if (epoch !== this.connectionEpoch) return
+
+		this.applyControlState(subs)
 
 		// Definitions derive from the app's *shape* (overlays, models, schema)
 		const definitionsChanged = this.refreshDefinitionsIfChanged()
@@ -344,6 +413,12 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		if (force || content !== this.lastContentFingerprint) {
 			this.lastContentFingerprint = content
 			this.checkFeedbacks('overlay_content_field')
+		}
+
+		const customization = JSON.stringify(this.customizationValues)
+		if (force || customization !== this.lastCustomizationFingerprint) {
+			this.lastCustomizationFingerprint = customization
+			this.checkFeedbacks('customization_field')
 		}
 	}
 
@@ -382,8 +457,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	// Retry the initial connect once, after a rate limit blocked it
 	private scheduleReconnect(seconds: number): void {
 		this.clearReconnect()
+		const epoch = this.connectionEpoch
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectTimer = undefined
+			if (epoch !== this.connectionEpoch) return
 			this.startConnection()
 		}, seconds * 1000)
 	}
@@ -395,8 +472,45 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		}
 	}
 
+	// After a 429, wait before the next poll instead of hammering on pollInterval.
+	private schedulePollRetry(seconds: number): void {
+		this.clearPollRetry()
+		const epoch = this.connectionEpoch
+		this.pollRetryTimer = setTimeout(() => {
+			this.pollRetryTimer = undefined
+			if (epoch !== this.connectionEpoch) return
+
+			this.pollData()
+				.then(() => {
+					if (epoch !== this.connectionEpoch) return
+					// onPollSucceeded already restarted polling if the limit cleared;
+					// if still limited, onRateLimited scheduled another retry.
+					if (!this.rateLimited) this.startPolling()
+				})
+				.catch((e) => {
+					if (epoch !== this.connectionEpoch) return
+					this.log('warn', `Poll retry failed: ${e}`)
+					if (this.rateLimited) {
+						this.schedulePollRetry(this.config.pollInterval || 60)
+					} else {
+						this.startPolling()
+					}
+				})
+		}, seconds * 1000)
+	}
+
+	private clearPollRetry(): void {
+		if (this.pollRetryTimer) {
+			clearTimeout(this.pollRetryTimer)
+			this.pollRetryTimer = undefined
+		}
+	}
+
 	private startPolling(): void {
 		this.stopPolling()
+		// While backing off a 429, schedulePollRetry owns the next attempt.
+		if (this.rateLimited) return
+
 		const interval = (this.config.pollInterval || 60) * 1000
 		this.pollTimer = setInterval(() => {
 			this.pollData().catch((e) => {
@@ -416,27 +530,57 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	// Immediate Feedback Helpers
 	// ----------------------------------------------------------------
 
+	// Resolve an action's overlayId to a /control subcomposition id. Single-overlay apps
+	// pass '' (or 'global' for visibility), which never matches a real subCompositionId.
+	private resolveContentOverlayId(overlayId: string, subs: ControlSubComposition[]): string | undefined {
+		if (overlayId && overlayId !== 'global') return overlayId
+
+		const only = subs.filter((s) => !s.mainComposition)
+		if (only.length === 1) return only[0].subCompositionId
+		return undefined
+	}
+
+	private findContentPayload(overlayId: string, subs: ControlSubComposition[]): Record<string, unknown> | undefined {
+		const id = this.resolveContentOverlayId(overlayId, subs)
+		if (!id) return undefined
+		return subs.find((s) => s.subCompositionId === id)?.payload
+	}
+
+	private cachedContentPayload(overlayId: string): Record<string, unknown> | undefined {
+		if (overlayId && overlayId !== 'global') {
+			return this.overlayContent.get(overlayId)
+		}
+		if (this.overlayContent.size === 1) {
+			return [...this.overlayContent.values()][0]
+		}
+		const only = this.controlState.filter((s) => !s.mainComposition)
+		if (only.length === 1) return this.overlayContent.get(only[0].subCompositionId)
+		return undefined
+	}
+
 	// Live content payload for one overlay, for the action Learn callbacks
 	async fetchLiveContent(overlayId: string): Promise<Record<string, unknown> | undefined> {
 		try {
-			const subs = await getControlState(this.config.apiToken)
-			return subs.find((s) => s.subCompositionId === overlayId)?.payload
+			const subs = await this.fetchControlState()
+			const payload = this.findContentPayload(overlayId, subs)
+			if (payload !== undefined) return payload
 		} catch (e) {
 			this.log('warn', `Learn: could not fetch live state, falling back to last poll - ${e}`)
-			return this.overlayContent.get(overlayId)
 		}
+		return this.cachedContentPayload(overlayId)
 	}
 
 	// Live customization values, for the customization Learn callbacks. Same contract as
 	// fetchLiveContent() - the customization values live on the app-level composition.
 	async fetchLiveCustomization(): Promise<Record<string, unknown> | undefined> {
 		try {
-			const subs = await getControlState(this.config.apiToken)
-			return subs.find((s) => s.mainComposition)?.payload
+			const subs = await this.fetchControlState()
+			const main = subs.find((s) => s.mainComposition)
+			if (main) return main.payload ?? {}
 		} catch (e) {
 			this.log('warn', `Learn: could not fetch live state, falling back to last poll - ${e}`)
-			return this.customizationValues
 		}
+		return this.customizationValues
 	}
 
 	// Send a mutating command, then refresh state from /control so variables and feedbacks
@@ -453,10 +597,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	// Queue a post-action state refresh, debounced
 	refreshAfterAction(): void {
 		if (this.refreshTimer) clearTimeout(this.refreshTimer)
+		const epoch = this.connectionEpoch
 		this.refreshTimer = setTimeout(() => {
 			this.refreshTimer = undefined
+			if (epoch !== this.connectionEpoch) return
 			void this.runRefresh()
 		}, ACTION_REFRESH_DEBOUNCE_MS)
+	}
+
+	private clearRefresh(): void {
+		if (this.refreshTimer) {
+			clearTimeout(this.refreshTimer)
+			this.refreshTimer = undefined
+		}
+		this.refreshPending = false
 	}
 
 	private async runRefresh(): Promise<void> {
@@ -465,12 +619,16 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			return
 		}
 		this.refreshInFlight = true
+		const epoch = this.connectionEpoch
 
 		try {
-			this.applyControlState(await getControlState(this.config.apiToken))
+			const subs = await this.fetchControlState(true)
+			if (epoch !== this.connectionEpoch) return
+			this.applyControlState(subs)
 			this.syncValuesAndFeedbacks(false)
 			this.onPollSucceeded()
 		} catch (e) {
+			if (epoch !== this.connectionEpoch) return
 			if (isRateLimitError(e)) {
 				this.onRateLimited(e)
 			} else {
@@ -478,9 +636,11 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			}
 		} finally {
 			this.refreshInFlight = false
-			if (this.refreshPending) {
+			if (this.refreshPending && epoch === this.connectionEpoch) {
 				this.refreshPending = false
 				void this.runRefresh()
+			} else {
+				this.refreshPending = false
 			}
 		}
 	}

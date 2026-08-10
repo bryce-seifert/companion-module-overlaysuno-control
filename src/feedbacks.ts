@@ -62,6 +62,9 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 		contentModels.length > 0
 			? contentModels.map((m) => ({ id: m.id, label: m.name }))
 			: [{ id: '', label: 'No overlays loaded' }]
+	const customizationFields = self.customizationModel?.model ?? []
+	const customizationInputs = buildFieldValueInputs(customizationFields)
+	const customizationFieldTypes = new Map(customizationFields.map((field) => [field.id, field.type]))
 
 	self.setFeedbackDefinitions({
 		overlay_content_field: {
@@ -108,6 +111,38 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				// Learn replaces the option set wholesale, so carry the existing options through -
 				// returning only the learned value key would blank out overlayId and fieldId.
 				return { ...feedback.options, ...learned }
+			},
+		},
+
+		customization_field: {
+			name: 'Customization Field Matches Value',
+			type: 'boolean',
+			defaultStyle: {
+				color: COLOR.ink,
+				bgcolor: COLOR.amber,
+			},
+			options: [
+				{
+					id: 'fieldId',
+					type: 'dropdown',
+					label: 'Field',
+					choices: customizationInputs.choices,
+					default: customizationInputs.choices[0]?.id ?? '',
+					allowCustom: true,
+				},
+				...customizationInputs.valueOptions,
+			],
+			callback: (feedback) => {
+				const fieldId = String(feedback.options.fieldId)
+				const expected = customizationInputs.resolveValue(feedback.options)
+				return contentMatches(self.customizationValues[fieldId], expected, customizationFieldTypes.get(fieldId))
+			},
+			learn: async (feedback) => {
+				const values = await self.fetchLiveCustomization()
+				if (!values) return undefined
+
+				const learned = customizationInputs.learnValue(feedback.options, values[String(feedback.options.fieldId)])
+				return learned ? { ...feedback.options, ...learned } : undefined
 			},
 		},
 

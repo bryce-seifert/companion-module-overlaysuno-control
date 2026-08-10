@@ -146,46 +146,66 @@ export function isUnsupportedCommandError(e: unknown): e is ApiError {
 // Core request function
 // ----------------------------------------------------------------
 
+interface RequestOptions {
+	rateLimitTarget: string
+	errorPrefix: string
+	notFoundMessage?: string
+}
+
+function parseRetryAfter(response: Response): number | undefined {
+	const value = response.headers.get('retry-after')
+	if (!value) return undefined
+
+	const seconds = Number(value)
+	if (Number.isFinite(seconds) && seconds > 0) return seconds
+
+	const retryAt = Date.parse(value)
+	if (!Number.isFinite(retryAt)) return undefined
+	return Math.max(1, Math.ceil((retryAt - Date.now()) / 1000))
+}
+
+async function readErrorBody(response: Response): Promise<string> {
+	try {
+		return await response.text()
+	} catch {
+		return ''
+	}
+}
+
+async function request(url: string, init: RequestInit, options: RequestOptions): Promise<Response> {
+	const response = await fetch(url, init)
+	if (response.ok) return response
+
+	const errorBody = await readErrorBody(response)
+	const detail = errorBody ? ` - ${errorBody}` : ''
+
+	if (response.status === 429) {
+		throw new ApiError(response.status, `Rate limit exceeded for ${options.rateLimitTarget}`, parseRetryAfter(response))
+	}
+	if (response.status === 404 && options.notFoundMessage) {
+		throw new ApiError(response.status, `${options.notFoundMessage}${detail}`)
+	}
+	throw new ApiError(response.status, `${options.errorPrefix}: HTTP ${response.status}${detail}`)
+}
+
 export async function sendCommand(apiToken: string, payload: ApiPayload): Promise<ApiResponse> {
 	const url = `${BASE_URL}/${apiToken}/api`
 
-	const response = await fetch(url, {
-		method: 'PUT',
-		headers: {
-			'content-type': 'application/json',
+	const response = await request(
+		url,
+		{
+			method: 'PUT',
+			headers: {
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify(payload),
 		},
-		body: JSON.stringify(payload),
-	})
-
-	if (!response.ok) {
-		// Read the response body to get the actual error detail from the API
-		let errorBody = ''
-		try {
-			errorBody = await response.text()
-		} catch {
-			// ignore if we can't read the body
-		}
-
-		const detail = errorBody ? ` - ${errorBody}` : ''
-
-		if (response.status === 429) {
-			// The body just restates "Rate limit exceeded" - callers render their own guidance,
-			// so keep the message clean rather than echoing the raw JSON back into the log.
-			const retryAfter = Number(response.headers.get('retry-after'))
-			throw new ApiError(
-				429,
-				`Rate limit exceeded for ${payload.command}`,
-				Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-			)
-		}
-		if (response.status === 404) {
-			throw new ApiError(404, `Resource not found - check your API token${detail}`)
-		}
-		throw new ApiError(
-			response.status,
-			`HTTP ${response.status} for ${payload.command}${payload.id ? ` (id: ${payload.id})` : ''}${detail}`,
-		)
-	}
+		{
+			rateLimitTarget: payload.command,
+			errorPrefix: `${payload.command} failed${payload.id ? ` (id: ${payload.id})` : ''}`,
+			notFoundMessage: 'Resource not found - check your API token',
+		},
+	)
 
 	try {
 		const data = (await response.json()) as ApiResponse
@@ -222,23 +242,14 @@ export async function getCustomizationModel(apiToken: string): Promise<OverlayMo
 export async function getAppInfo(apiToken: string): Promise<AppInfo> {
 	const url = `${BASE_URL}/${apiToken}`
 
-	const response = await fetch(url, {
-		method: 'GET',
-		redirect: 'follow',
-	})
-
-	if (!response.ok) {
-		let errorBody = ''
-		try {
-			errorBody = await response.text()
-		} catch {
-			// ignore
-		}
-		throw new ApiError(
-			response.status,
-			`Failed to validate token: HTTP ${response.status}${errorBody ? ` - ${errorBody}` : ''}`,
-		)
-	}
+	const response = await request(
+		url,
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: 'token validation',
+			errorPrefix: 'Failed to validate token',
+		},
+	)
 
 	const json = (await response.json()) as AppInfo
 	return json
@@ -262,10 +273,14 @@ export async function fetchThumbnailDataUri(thumbnail: string): Promise<string |
 	const url = normalizeThumbnailUrl(thumbnail)
 	if (!url) return null
 
-	const response = await fetch(url, { method: 'GET', redirect: 'follow' })
-	if (!response.ok) {
-		throw new ApiError(response.status, `Failed to fetch thumbnail: HTTP ${response.status}`)
-	}
+	const response = await request(
+		url,
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: 'thumbnail',
+			errorPrefix: 'Failed to fetch thumbnail',
+		},
+	)
 
 	const contentType = response.headers.get('content-type') ?? 'image/png'
 	const buffer = Buffer.from(await response.arrayBuffer())
@@ -276,28 +291,14 @@ export async function fetchThumbnailDataUri(thumbnail: string): Promise<string |
 export async function getControlState(apiToken: string): Promise<ControlSubComposition[]> {
 	const url = `${BASE_URL}/${apiToken}/control`
 
-	const response = await fetch(url, { method: 'GET', redirect: 'follow' })
-
-	if (!response.ok) {
-		let errorBody = ''
-		try {
-			errorBody = await response.text()
-		} catch {
-			// ignore
-		}
-		if (response.status === 429) {
-			const retryAfter = Number(response.headers.get('retry-after'))
-			throw new ApiError(
-				429,
-				`Rate limit exceeded for /control`,
-				Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-			)
-		}
-		throw new ApiError(
-			response.status,
-			`Failed to fetch control state: HTTP ${response.status}${errorBody ? ` - ${errorBody}` : ''}`,
-		)
-	}
+	const response = await request(
+		url,
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: '/control',
+			errorPrefix: 'Failed to fetch control state',
+		},
+	)
 
 	const json = (await response.json()) as ControlSubComposition[]
 	return Array.isArray(json) ? json : []
@@ -306,23 +307,14 @@ export async function getControlState(apiToken: string): Promise<ControlSubCompo
 export async function getApiSchema(apiToken: string): Promise<ApiCommandEntry[]> {
 	const url = `${BASE_URL}/${apiToken}/api/json`
 
-	const response = await fetch(url, {
-		method: 'GET',
-		redirect: 'follow',
-	})
-
-	if (!response.ok) {
-		let errorBody = ''
-		try {
-			errorBody = await response.text()
-		} catch {
-			// ignore
-		}
-		throw new ApiError(
-			response.status,
-			`Failed to fetch API schema: HTTP ${response.status}${errorBody ? ` - ${errorBody}` : ''}`,
-		)
-	}
+	const response = await request(
+		url,
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: 'API schema',
+			errorPrefix: 'Failed to fetch API schema',
+		},
+	)
 
 	const json = (await response.json()) as ApiCommandEntry[]
 	return json

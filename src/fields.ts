@@ -14,9 +14,10 @@ export function hexToColorNumber(hex: string): number {
 	return Number.isNaN(n) ? 0 : n & 0xffffff
 }
 
-// Coerce an unknown field default to a string without Object stringification.
-function defaultValueAsString(value: unknown): string {
-	return typeof value === 'string' ? value : ''
+// Coerce a color field default (hex string or {r,g,b}) into a Companion color number.
+function colorDefaultAsNumber(value: unknown): number {
+	const hex = normalizeColor(value, 'color')
+	return typeof hex === 'string' ? hexToColorNumber(hex) : 0
 }
 
 // Format a Companion color number as an overlays.uno hex string, e.g. "#ffde00".
@@ -83,7 +84,7 @@ export function fieldSetOption(field: OverlayModelField): { optionId: string; va
 		return { optionId: 'value_boolean', value: field.defaultValue === true }
 	}
 	if (field.type === 'color') {
-		return { optionId: 'value_color', value: hexToColorNumber(defaultValueAsString(field.defaultValue)) }
+		return { optionId: 'value_color', value: colorDefaultAsNumber(field.defaultValue) }
 	}
 	if (field.type === 'selection' && field.selections?.length) {
 		const value = (field.defaultValue ?? field.selections[0]?.id ?? '') as InputValue
@@ -171,7 +172,7 @@ export function buildFieldValueInputs(fields: OverlayModelField[]): FieldValueIn
 			type: 'colorpicker',
 			label: 'Color',
 			returnType: 'number',
-			default: hexToColorNumber(defaultValueAsString(colorFields[0]?.defaultValue)),
+			default: colorDefaultAsNumber(colorFields[0]?.defaultValue),
 			isVisibleExpression: colorIds.map((id) => `$(options:fieldId) == '${escExpr(id)}'`).join(' || '),
 		})
 	}
