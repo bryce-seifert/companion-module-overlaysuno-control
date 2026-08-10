@@ -6,7 +6,7 @@ import { COLOR } from '../style.js'
 import { sanitizeName } from '../variables.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
-type PresetKind = 'set' | 'value' | 'inc' | 'dec' | 'toggle' | 'exec' | 'play' | 'pause' | 'reset' | 'start'
+type PresetKind = 'set' | 'value' | 'inc' | 'dec' | 'rotary' | 'toggle' | 'exec' | 'play' | 'pause' | 'reset' | 'start'
 
 export interface FieldPresetConfig {
 	category: string
@@ -151,6 +151,57 @@ function buildNumberPresets(
 	buildAdjustPreset(field, presets, config, 'inc', 'increment', ICON_ADD_1, '+1')
 	buildValuePreset(field, presets, config)
 	buildAdjustPreset(field, presets, config, 'dec', 'decrement', ICON_MINUS_1, '-1')
+	buildRotaryPreset(field, presets, config)
+}
+
+function buildRotaryPreset(
+	field: OverlayModelField,
+	presets: CompanionPresetDefinitions,
+	config: FieldPresetConfig,
+): void {
+	presets[config.presetKey('rotary', field)] = {
+		type: 'button',
+		category: config.category,
+		name: `${field.title}: Rotary`,
+		style: {
+			text: `${field.title}\\n${variableReference(config, field)}`,
+			size: '14',
+			color: COLOR.white,
+			bgcolor: COLOR.surface,
+			show_topbar: false,
+			alignment: 'center:center',
+		},
+		previewStyle: {
+			text: `${field.title}\\nRotary`,
+			size: '14',
+			color: COLOR.white,
+			bgcolor: COLOR.surface,
+			show_topbar: false,
+			alignment: 'center:center',
+		},
+		options: {
+			rotaryActions: true,
+		},
+		steps: [
+			{
+				down: [],
+				up: [],
+				rotate_left: [
+					{
+						actionId: config.actionIds.adjust,
+						options: actionOptions(config, field, { direction: 'decrement', value: '1' }),
+					},
+				],
+				rotate_right: [
+					{
+						actionId: config.actionIds.adjust,
+						options: actionOptions(config, field, { direction: 'increment', value: '1' }),
+					},
+				],
+			},
+		],
+		feedbacks: [],
+	}
 }
 
 function buildAdjustPreset(
