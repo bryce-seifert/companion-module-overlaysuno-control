@@ -3,7 +3,7 @@
 	"id": "overlaysuno-control",
 	"name": "overlaysuno-control",
 	"shortname": "overlays.uno",
-	"description": "Control customizable, real-time graphic overlays Overlays.uno.",
+	"description": "Control customizable, real-time graphic overlays from Overlays.uno.",
 	"version": "0.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-overlaysuno-control.git",
