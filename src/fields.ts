@@ -77,6 +77,7 @@ export function buildFieldChoices(
 		choices.push({ id: field.id, label: fieldChoiceLabel(field) })
 	}
 
+	choices.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 	if (choices.length === 0) choices.push({ id: '', label: emptyLabel })
 	return choices
 }
@@ -144,6 +145,7 @@ function categorizeFields(fields: OverlayModelField[]): CategorizedFields {
 		}
 	}
 
+	choices.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 	if (choices.length === 0) {
 		choices.push({ id: '', label: 'No fields loaded' })
 	}

@@ -59,13 +59,11 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 			targetOptions: [overlayOption],
 			actionIds: {
 				set: 'set_overlay_content_field',
-				adjust: 'adjust_overlay_content_field',
 				toggle: 'toggle_overlay_content_field',
 				execute: 'exec_overlay_content_field',
 			},
 			names: {
 				set: 'Overlays - Set Content Field',
-				adjust: 'Overlays - Adjust Content Field',
 				toggle: 'Overlays - Toggle Content Field',
 				execute: 'Overlays - Execute Content Field',
 			},

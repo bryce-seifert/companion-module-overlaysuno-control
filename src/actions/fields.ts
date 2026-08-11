@@ -4,7 +4,7 @@ import type {
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
 import type { ApiPayload, OverlayModelField } from '../api.js'
-import { buildFieldChoices, buildFieldValueInputs, NUMERIC_FIELD_TYPES } from '../fields.js'
+import { buildFieldValueInputs, escExpr, NUMERIC_FIELD_TYPES } from '../fields.js'
 import type { ModuleInstance } from '../main.js'
 import type { DropdownChoice, JsonObject } from '../types.js'
 import { EXECUTE_FUNCTION_CHOICES } from './shared.js'
@@ -14,13 +14,11 @@ export interface FieldActionConfig {
 	targetOptions: SomeCompanionActionInputField[]
 	actionIds: {
 		set: string
-		adjust: string
 		toggle: string
 		execute: string
 	}
 	names: {
 		set: string
-		adjust: string
 		toggle: string
 		execute: string
 	}
@@ -49,20 +47,42 @@ function fieldOption(choices: DropdownChoice[]): SomeCompanionActionInputField {
 export function buildFieldActions(self: ModuleInstance, config: FieldActionConfig): CompanionActionDefinitions {
 	const valueInputs = buildFieldValueInputs(config.fields)
 	const fieldChoices = valueInputs.choices
-	const numericChoices = buildFieldChoices(
-		config.fields,
-		(field) => NUMERIC_FIELD_TYPES.has(field.type),
-		'No numeric fields',
-	)
+	const numericFieldIds = [
+		...new Set(config.fields.filter((field) => NUMERIC_FIELD_TYPES.has(field.type)).map((field) => field.id)),
+	]
+	const operationOptions: SomeCompanionActionInputField[] = numericFieldIds.length
+		? [
+				{
+					id: 'operation',
+					type: 'dropdown',
+					label: 'Operation',
+					choices: [
+						{ id: 'set', label: 'Set' },
+						{ id: 'increment', label: 'Increment' },
+						{ id: 'decrement', label: 'Decrement' },
+					],
+					default: 'set',
+					isVisibleExpression: numericFieldIds.map((id) => `$(options:fieldId) == '${escExpr(id)}'`).join(' || '),
+				},
+			]
+		: []
 
 	return {
 		[config.actionIds.set]: {
 			name: config.names.set,
-			options: [...config.targetOptions, fieldOption(fieldChoices), ...valueInputs.valueOptions],
+			options: [...config.targetOptions, fieldOption(fieldChoices), ...operationOptions, ...valueInputs.valueOptions],
 			callback: async (event) => {
+				const operation = event.options.operation
+				const command =
+					numericFieldIds.includes(String(event.options.fieldId)) && operation === 'increment'
+						? config.commands.increment
+						: numericFieldIds.includes(String(event.options.fieldId)) && operation === 'decrement'
+							? config.commands.decrement
+							: config.commands.set
+
 				await self.sendAndRefresh({
 					...config.payloadFor(event.options),
-					command: config.commands.set,
+					command,
 					fieldId: String(event.options.fieldId),
 					value: valueInputs.resolveValue(event.options),
 				})
@@ -73,39 +93,6 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 
 				const learned = valueInputs.learnValue(event.options, values[String(event.options.fieldId)])
 				return learned ? { ...event.options, ...learned } : undefined
-			},
-		},
-		[config.actionIds.adjust]: {
-			name: config.names.adjust,
-			options: [
-				...config.targetOptions,
-				fieldOption(numericChoices),
-				{
-					id: 'direction',
-					type: 'dropdown',
-					label: 'Direction',
-					choices: [
-						{ id: 'increment', label: 'Increment (+)' },
-						{ id: 'decrement', label: 'Decrement (−)' },
-					],
-					default: 'increment',
-				},
-				{
-					id: 'value',
-					type: 'textinput',
-					label: 'Amount',
-					default: '1',
-					useVariables: true,
-				},
-			],
-			callback: async (event) => {
-				const command = event.options.direction === 'decrement' ? config.commands.decrement : config.commands.increment
-				await self.sendAndRefresh({
-					...config.payloadFor(event.options),
-					command,
-					fieldId: String(event.options.fieldId),
-					value: String(event.options.value),
-				})
 			},
 		},
 		[config.actionIds.toggle]: {

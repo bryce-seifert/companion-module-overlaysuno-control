@@ -14,7 +14,6 @@ export interface FieldPresetConfig {
 	presetKey: (kind: PresetKind, field: OverlayModelField) => string
 	actionIds: {
 		set: string
-		adjust: string
 		toggle: string
 		execute: string
 	}
@@ -116,6 +115,17 @@ function buildNumberPresets(
 	buildRotaryPreset(field, presets, config)
 }
 
+function adjustAction(
+	config: FieldPresetConfig,
+	field: OverlayModelField,
+	operation: 'increment' | 'decrement',
+): { actionId: string; options: Record<string, InputValue> } {
+	return {
+		actionId: config.actionIds.set,
+		options: actionOptions(config, field, { operation, value: '1' }),
+	}
+}
+
 function buildRotaryPreset(
 	field: OverlayModelField,
 	presets: CompanionPresetDefinitions,
@@ -140,18 +150,8 @@ function buildRotaryPreset(
 			{
 				down: [],
 				up: [],
-				rotate_left: [
-					{
-						actionId: config.actionIds.adjust,
-						options: actionOptions(config, field, { direction: 'decrement', value: '1' }),
-					},
-				],
-				rotate_right: [
-					{
-						actionId: config.actionIds.adjust,
-						options: actionOptions(config, field, { direction: 'increment', value: '1' }),
-					},
-				],
+				rotate_left: [adjustAction(config, field, 'decrement')],
+				rotate_right: [adjustAction(config, field, 'increment')],
 			},
 		],
 		feedbacks: [],
@@ -183,12 +183,7 @@ function buildAdjustPreset(
 		},
 		steps: [
 			{
-				down: [
-					{
-						actionId: config.actionIds.adjust,
-						options: actionOptions(config, field, { direction, value: '1' }),
-					},
-				],
+				down: [adjustAction(config, field, direction)],
 				up: [],
 			},
 		],

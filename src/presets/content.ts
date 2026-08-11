@@ -11,7 +11,6 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 		presetKey: (kind, field) => `${kind}_${model.id}_${field.id}`,
 		actionIds: {
 			set: 'set_overlay_content_field',
-			adjust: 'adjust_overlay_content_field',
 			toggle: 'toggle_overlay_content_field',
 			execute: 'exec_overlay_content_field',
 		},

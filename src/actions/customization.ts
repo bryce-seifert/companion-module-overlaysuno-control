@@ -38,13 +38,11 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 			targetOptions: [],
 			actionIds: {
 				set: 'set_customization_field',
-				adjust: 'adjust_customization_field',
 				toggle: 'toggle_customization_field',
 				execute: 'exec_customization_field',
 			},
 			names: {
 				set: 'Customize - Set Field',
-				adjust: 'Customize - Adjust Field',
 				toggle: 'Customize - Toggle Field',
 				execute: 'Customize - Execute Field',
 			},

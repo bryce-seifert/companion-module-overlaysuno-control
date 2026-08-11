@@ -11,7 +11,6 @@ export function buildCustomizationPresets(model: OverlayModel, presets: Companio
 		presetKey: (kind, field) => `customize_${kind}_${field.id}`,
 		actionIds: {
 			set: 'set_customization_field',
-			adjust: 'adjust_customization_field',
 			toggle: 'toggle_customization_field',
 			execute: 'exec_customization_field',
 		},
