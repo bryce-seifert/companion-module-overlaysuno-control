@@ -1,8 +1,7 @@
 import { type SomeCompanionConfigField } from '@companion-module/base'
-import { DEFAULT_POLL_INTERVAL_SECONDS } from './types.js'
 
 export interface ModuleConfig {
-	pollInterval: number
+	info: string
 }
 
 export interface ModuleSecrets {
@@ -24,16 +23,6 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			label: 'UNO Token',
 			width: 12,
 			required: true,
-		},
-		{
-			type: 'number',
-			id: 'pollInterval',
-			label: 'Poll Interval',
-			tooltip: 'How often, in seconds, to refresh overlay data from the API',
-			width: 4,
-			min: 10,
-			max: 3600,
-			default: DEFAULT_POLL_INTERVAL_SECONDS,
 		},
 	]
 }

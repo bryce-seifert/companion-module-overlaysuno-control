@@ -24,9 +24,6 @@ export interface DropdownChoice {
  */
 export const GLOBAL_OVERLAY_ID = 'global'
 
-/** Default poll interval (seconds) when the config value is missing or zero. */
-export const DEFAULT_POLL_INTERVAL_SECONDS = 60
-
 /** Fallback reconnect delay when a connect-time 429 has no Retry-After header. */
 export const CONNECT_RETRY_SECONDS = 30
 

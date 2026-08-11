@@ -29,7 +29,6 @@ import {
 import {
 	ACTION_REFRESH_DEBOUNCE_MS,
 	CONNECT_RETRY_SECONDS,
-	DEFAULT_POLL_INTERVAL_SECONDS,
 	GLOBAL_OVERLAY_ID,
 	type DropdownChoice,
 	type JsonObject,
@@ -73,7 +72,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	private lastContentFingerprint = ''
 	private lastCustomizationFingerprint = ''
 
-	private pollTimer: ReturnType<typeof setInterval> | undefined
 	private pollRetryTimer: ReturnType<typeof setTimeout> | undefined
 	private reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	private refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -103,7 +101,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	async destroy(): Promise<void> {
 		this.connectionEpoch++
 		this.controlStateInFlight = null
-		this.stopPolling()
 		this.clearPollRetry()
 		this.clearReconnect()
 		this.clearRefresh()
@@ -119,7 +116,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	private startConnection(): void {
 		const epoch = ++this.connectionEpoch
 		this.controlStateInFlight = null
-		this.stopPolling()
 		this.clearPollRetry()
 		this.clearReconnect()
 		this.clearRefresh()
@@ -137,7 +133,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	}
 
 	// ----------------------------------------------------------------
-	// Connection & polling
+	// Connection & state refresh
 	// ----------------------------------------------------------------
 
 	/**
@@ -147,10 +143,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	 */
 	hasCommand(command: string): boolean {
 		return this.availableCommands.has(command)
-	}
-
-	private pollIntervalSeconds(): number {
-		return this.config.pollInterval || DEFAULT_POLL_INTERVAL_SECONDS
 	}
 
 	clearState(): void {
@@ -216,7 +208,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			if (!this.rateLimited) {
 				this.updateStatus(InstanceStatus.Ok)
 			}
-			this.startPolling()
 		} catch (error) {
 			if (epoch !== this.connectionEpoch) return
 			this.handleConnectionError(error)
@@ -277,10 +268,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	}
 
 	private onRateLimited(error: ApiError): void {
-		const retryIn = error.retryAfter ?? this.pollIntervalSeconds()
+		const retryIn = error.retryAfter ?? 60
 
-		// Stop the normal interval and wait for Retry-After before the next poll.
-		this.stopPolling()
+		// Wait for Retry-After before retrying, instead of hammering immediately.
 		this.schedulePollRetry(retryIn)
 
 		// Only announce the transition into the rate-limited state.
@@ -297,8 +287,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		this.clearPollRetry()
 		this.updateStatus(InstanceStatus.Ok)
 		this.log('info', 'Overlays.uno API rate limit cleared, normal operation resumed')
-		// Resume the normal interval (also covers early recovery via post-action refresh).
-		this.startPolling()
 	}
 
 	/** Fetch one piece of the app's structure via a Get* command. */
@@ -487,7 +475,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		this.reconnectTimer = undefined
 	}
 
-	/** After a 429, wait before the next poll instead of hammering on pollInterval. */
+	/** After a 429, wait before retrying instead of hammering immediately. */
 	private schedulePollRetry(seconds: number): void {
 		this.clearPollRetry()
 		const epoch = this.connectionEpoch
@@ -495,22 +483,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			this.pollRetryTimer = undefined
 			if (epoch !== this.connectionEpoch) return
 
-			this.pollData()
-				.then(() => {
-					if (epoch !== this.connectionEpoch) return
-					// onPollSucceeded already restarted polling if the limit cleared;
-					// if still limited, onRateLimited scheduled another retry.
-					if (!this.rateLimited) this.startPolling()
-				})
-				.catch((error) => {
-					if (epoch !== this.connectionEpoch) return
-					this.log('warn', `Poll retry failed: ${error}`)
-					if (this.rateLimited) {
-						this.schedulePollRetry(this.pollIntervalSeconds())
-					} else {
-						this.startPolling()
-					}
-				})
+			this.pollData().catch((error) => {
+				if (epoch !== this.connectionEpoch) return
+				this.log('warn', `Poll retry failed: ${error}`)
+				if (this.rateLimited) {
+					this.schedulePollRetry(60)
+				}
+			})
 		}, seconds * 1000)
 	}
 
@@ -518,25 +497,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		if (!this.pollRetryTimer) return
 		clearTimeout(this.pollRetryTimer)
 		this.pollRetryTimer = undefined
-	}
-
-	private startPolling(): void {
-		this.stopPolling()
-		// While backing off a 429, schedulePollRetry owns the next attempt.
-		if (this.rateLimited) return
-
-		const intervalMs = this.pollIntervalSeconds() * 1000
-		this.pollTimer = setInterval(() => {
-			this.pollData().catch((error) => {
-				this.log('warn', `Poll failed: ${error}`)
-			})
-		}, intervalMs)
-	}
-
-	private stopPolling(): void {
-		if (!this.pollTimer) return
-		clearInterval(this.pollTimer)
-		this.pollTimer = undefined
 	}
 
 	// ----------------------------------------------------------------
@@ -602,7 +562,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 	/**
 	 * Send a mutating command, then refresh state from /control so variables and
-	 * feedbacks update immediately rather than waiting for the next poll.
+	 * feedbacks update immediately.
 	 */
 	async sendAndRefresh(payload: ApiPayload): Promise<void> {
 		try {
