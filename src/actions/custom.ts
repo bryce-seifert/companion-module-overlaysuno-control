@@ -68,8 +68,9 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 			},
 		},
 		poll_data: {
-			name: 'Custom - Poll Current Overlay Data',
-			description: 'Poll the data from the Overlays Uno API. This will update the variables and feedbacks.',
+			name: 'Custom - Refresh Current Overlay Data',
+			description:
+				'Requests the current overlay data from the Overlays Uno API and updates the variables and feedbacks.',
 			options: [],
 			callback: async () => {
 				await self.pollData()

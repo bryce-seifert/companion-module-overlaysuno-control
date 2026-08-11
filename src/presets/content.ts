@@ -18,8 +18,6 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 		targetOptions: { overlayId: model.id },
 		variableId: (field) => fieldVariableId(`overlay_${sanitizeName(model.name)}_`, field),
 		setText: (label) => `Set ${label}`,
-		showValueForNonNumeric: true,
-		valuePrefixCurrent: true,
 		checkboxFeedbacks: (field) => [
 			{
 				feedbackId: 'overlay_content_field',

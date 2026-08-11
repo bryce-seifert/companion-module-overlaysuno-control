@@ -7,7 +7,7 @@ import { FieldType, NUMERIC_FIELD_TYPES, STRUCTURED_FIELD_TYPES } from '../types
 import { sanitizeName } from '../variables.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
-type PresetKind = 'set' | 'value' | 'inc' | 'dec' | 'rotary' | 'toggle' | 'exec' | 'play' | 'pause' | 'reset' | 'start'
+type PresetKind = 'set' | 'inc' | 'dec' | 'rotary' | 'toggle' | 'exec' | 'play' | 'pause' | 'reset' | 'start'
 
 export interface FieldPresetConfig {
 	category: string
@@ -23,8 +23,6 @@ export interface FieldPresetConfig {
 	variableId: (field: OverlayModelField) => string
 	/** Button text for Set presets. `label` already includes a type suffix when useful (e.g. "Title (Color)"). */
 	setText: (label: string, variableReference: string) => string
-	showValueForNonNumeric: boolean
-	valuePrefixCurrent: boolean
 	checkboxFeedbacks: (field: OverlayModelField) => CompanionButtonPresetDefinition['feedbacks']
 }
 
@@ -56,16 +54,6 @@ function buildFieldPreset(
 	config: FieldPresetConfig,
 ): void {
 	const type = field.type.toLowerCase()
-
-	// Skip value-on-button presets for structured JSON fields (fonts, etc.) — the blob won't fit.
-	if (
-		config.showValueForNonNumeric &&
-		type !== FieldType.Button &&
-		!NUMERIC_FIELD_TYPES.has(type) &&
-		!STRUCTURED_FIELD_TYPES.has(type)
-	) {
-		buildValuePreset(field, presets, config)
-	}
 
 	if (NUMERIC_FIELD_TYPES.has(type)) {
 		buildNumberPresets(field, presets, config)
@@ -133,35 +121,12 @@ function buildSetPreset(
 	}
 }
 
-function buildValuePreset(
-	field: OverlayModelField,
-	presets: CompanionPresetDefinitions,
-	config: FieldPresetConfig,
-): void {
-	presets[config.presetKey('value', field)] = {
-		type: 'button',
-		category: config.category,
-		name: `${field.title}: Value`,
-		style: {
-			text: `${config.valuePrefixCurrent ? 'Current ' : ''}${field.title}\\n${variableReference(config, field)}`,
-			size: '14',
-			color: COLOR.white,
-			// Read-only status buttons share the darker background so they stand out from actionable buttons.
-			bgcolor: COLOR.ink,
-			show_topbar: false,
-		},
-		steps: [],
-		feedbacks: [],
-	}
-}
-
 function buildNumberPresets(
 	field: OverlayModelField,
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
 	buildAdjustPreset(field, presets, config, 'inc', 'increment', ICON_ADD_1, '+1')
-	buildValuePreset(field, presets, config)
 	buildAdjustPreset(field, presets, config, 'dec', 'decrement', ICON_MINUS_1, '-1')
 	buildRotaryPreset(field, presets, config)
 }

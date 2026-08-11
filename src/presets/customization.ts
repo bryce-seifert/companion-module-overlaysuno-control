@@ -18,8 +18,6 @@ export function buildCustomizationPresets(model: OverlayModel, presets: Companio
 		targetOptions: {},
 		variableId: (field) => fieldVariableId('customize_', field),
 		setText: (label, variableReference) => (variableReference ? `Set ${label}\\n${variableReference}` : `Set ${label}`),
-		showValueForNonNumeric: false,
-		valuePrefixCurrent: false,
 		checkboxFeedbacks: (field) => [
 			{
 				feedbackId: 'customization_field',
