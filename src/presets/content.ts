@@ -2,7 +2,7 @@ import type { CompanionPresetDefinitions } from '@companion-module/base'
 import type { OverlayModel } from '../api.js'
 import { COLOR } from '../style.js'
 import { sanitizeName } from '../variables.js'
-import { buildFieldPresets, fieldVariableId } from './fields.js'
+import { buildFieldPresets } from './fields.js'
 
 export function buildContentFieldPresets(model: OverlayModel, presets: CompanionPresetDefinitions): void {
 	buildFieldPresets(model, presets, {
@@ -16,8 +16,6 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 			execute: 'exec_overlay_content_field',
 		},
 		targetOptions: { overlayId: model.id },
-		variableId: (field) => fieldVariableId(`overlay_${sanitizeName(model.name)}_`, field),
-		setText: (label) => `Set ${label}`,
 		checkboxFeedbacks: (field) => [
 			{
 				feedbackId: 'overlay_content_field',

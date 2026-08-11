@@ -3,8 +3,7 @@ import type { OverlayModel, OverlayModelField } from '../api.js'
 import { fieldChoiceLabel, fieldSetOption } from '../fields.js'
 import { ICON_ADD_1, ICON_MINUS_1, ICON_PAUSE_TIME, ICON_PLAY_TIME, ICON_RESET, ICON_RESTORE_TIME } from '../icons.js'
 import { COLOR } from '../style.js'
-import { FieldType, NUMERIC_FIELD_TYPES, STRUCTURED_FIELD_TYPES } from '../types.js'
-import { sanitizeName } from '../variables.js'
+import { FieldType, NUMERIC_FIELD_TYPES } from '../types.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
 type PresetKind = 'set' | 'inc' | 'dec' | 'rotary' | 'toggle' | 'exec' | 'play' | 'pause' | 'reset' | 'start'
@@ -20,9 +19,6 @@ export interface FieldPresetConfig {
 		execute: string
 	}
 	targetOptions: Record<string, InputValue>
-	variableId: (field: OverlayModelField) => string
-	/** Button text for Set presets. `label` already includes a type suffix when useful (e.g. "Title (Color)"). */
-	setText: (label: string, variableReference: string) => string
 	checkboxFeedbacks: (field: OverlayModelField) => CompanionButtonPresetDefinition['feedbacks']
 }
 
@@ -68,15 +64,6 @@ function buildFieldPreset(
 	}
 }
 
-/** True when a field's live value is short enough to show on a Stream Deck button. */
-function canShowValueOnButton(field: OverlayModelField): boolean {
-	return !STRUCTURED_FIELD_TYPES.has(field.type.toLowerCase())
-}
-
-function variableReference(config: FieldPresetConfig, field: OverlayModelField): string {
-	return `$(overlaysuno-control:${config.variableId(field)})`
-}
-
 function actionOptions(
 	config: FieldPresetConfig,
 	field: OverlayModelField,
@@ -92,14 +79,12 @@ function buildSetPreset(
 ): void {
 	const setOption = fieldSetOption(field)
 	const label = fieldChoiceLabel(field)
-	// Structured values (e.g. metricfont) render as huge JSON — label only on the button.
-	const valueRef = canShowValueOnButton(field) ? variableReference(config, field) : ''
 	presets[config.presetKey('set', field)] = {
 		type: 'button',
 		category: config.category,
 		name: `Set: ${label}`,
 		style: {
-			text: config.setText(label, valueRef),
+			text: `Set ${label}`,
 			size: '14',
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
@@ -141,14 +126,6 @@ function buildRotaryPreset(
 		category: config.category,
 		name: `${field.title}: Rotary`,
 		style: {
-			text: `${field.title}\\n${variableReference(config, field)}`,
-			size: '14',
-			color: COLOR.white,
-			bgcolor: COLOR.surface,
-			show_topbar: false,
-			alignment: 'center:center',
-		},
-		previewStyle: {
 			text: `${field.title}\\nRotary`,
 			size: '14',
 			color: COLOR.white,
@@ -312,8 +289,4 @@ function buildTimeControlPresets(
 			feedbacks: [],
 		}
 	}
-}
-
-export function fieldVariableId(prefix: string, field: OverlayModelField): string {
-	return `${prefix}${sanitizeName(field.id)}`
 }
