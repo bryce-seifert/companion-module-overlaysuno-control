@@ -36,6 +36,28 @@ export function parseJsonValueOrString(raw: string): JsonValue | string {
 	}
 }
 
+/**
+ * Expand backslash escapes typed into a Companion text option into real characters.
+ * Single-line inputs can't hold a newline, so list-style commands (SetNames, AddNames, …)
+ * are written as `Alice\nBob`; without this the API receives the two literal characters.
+ * `\\` escapes a backslash for values that need one.
+ */
+export function expandEscapeSequences(raw: string): string {
+	if (!raw.includes('\\')) return raw
+	return raw.replace(/\\([\\nrt])/g, (_match, escaped: string) => {
+		switch (escaped) {
+			case 'n':
+				return '\n'
+			case 'r':
+				return '\r'
+			case 't':
+				return '\t'
+			default:
+				return '\\'
+		}
+	})
+}
+
 /** Narrow unknown to a plain object (not null/array). */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)

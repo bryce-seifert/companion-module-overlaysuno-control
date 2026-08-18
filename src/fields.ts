@@ -1,6 +1,7 @@
 import type { InputValue, SomeCompanionFeedbackInputField, CompanionOptionValues } from '@companion-module/base'
 import type { OverlayModelField } from './api.js'
 import { FieldType, NUMERIC_FIELD_TYPES, type DropdownChoice, type JsonValue } from './types.js'
+import { expandEscapeSequences } from './util.js'
 import { sanitizeName, normalizeColor, isRgbObject } from './variables.js'
 
 export { NUMERIC_FIELD_TYPES }
@@ -242,7 +243,7 @@ function createResolveValue(
 			return String(options.value ?? '')
 		}
 
-		return String(options.value ?? '')
+		return expandEscapeSequences(String(options.value ?? ''))
 	}
 }
 

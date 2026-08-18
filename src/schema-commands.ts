@@ -3,7 +3,7 @@ import type { ModuleInstance } from './main.js'
 import type { CommandArgument } from './api.js'
 import { isCommandEntry, isGroupEntry } from './api.js'
 import { FieldType, type DropdownChoice, type JsonValue } from './types.js'
-import { asOptionString, toFiniteNumber } from './util.js'
+import { asOptionString, expandEscapeSequences, toFiniteNumber } from './util.js'
 
 /**
  * Commands already backed by dedicated actions/presets — never expose these as
@@ -145,7 +145,15 @@ export function argInput(arg: CommandArgument, overlayChoices: DropdownChoice[])
 		}
 	}
 
-	return { id: arg.id, type: 'textinput', label, default: arg.default ?? '', useVariables: true }
+	return {
+		id: arg.id,
+		type: 'textinput',
+		label,
+		default: arg.default ?? '',
+		multiline: true,
+		useVariables: true,
+		tooltip: 'Commands that take a list expect one entry per line. \\n also works as a line break.',
+	}
 }
 
 /** Default option value for a command argument, used to seed generated presets. */
@@ -161,5 +169,5 @@ export function resolveArg(arg: CommandArgument, raw: unknown): JsonValue {
 	if (isNumericArgType(arg.type)) return toFiniteNumber(raw, 0)
 	if (isJsonArgType(arg.type)) return JSON.parse(asOptionString(raw)) as JsonValue
 	if (isBooleanArgType(arg.type)) return raw === true
-	return asOptionString(raw)
+	return expandEscapeSequences(asOptionString(raw))
 }

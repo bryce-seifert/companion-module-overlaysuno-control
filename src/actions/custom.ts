@@ -1,7 +1,7 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
-import { parseJsonValueOrString } from '../util.js'
+import { expandEscapeSequences, parseJsonValueOrString } from '../util.js'
 
 export function getCustomActions(self: ModuleInstance): CompanionActionDefinitions {
 	return {
@@ -24,8 +24,10 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 					type: 'textinput',
 					label: 'Value (optional)',
 					default: '',
+					multiline: true,
 					useVariables: true,
-					tooltip: 'The value to send with the command. Leave empty if the command takes no value.',
+					tooltip:
+						'The value to send with the command. Leave empty if the command takes no value. List commands expect one entry per line; \\n also works as a line break.',
 				},
 				{
 					id: 'id',
@@ -55,7 +57,8 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 
 				const value = String(event.options.value ?? '')
 				if (value) {
-					payload.value = parseJsonValueOrString(value)
+					const parsed = parseJsonValueOrString(value)
+					payload.value = typeof parsed === 'string' ? expandEscapeSequences(parsed) : parsed
 				}
 
 				const id = String(event.options.id ?? '')
