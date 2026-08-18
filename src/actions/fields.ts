@@ -10,6 +10,7 @@ import {
 	escExpr,
 	isActionField,
 	isContentField,
+	isToggleField,
 	NUMERIC_FIELD_TYPES,
 } from '../fields.js'
 import type { ModuleInstance } from '../main.js'
@@ -56,6 +57,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 	const valueInputs = buildFieldValueInputs(contentFields)
 	const contentChoices = valueInputs.choices
 	const actionChoices = buildFieldChoices(config.fields, isActionField, 'No action fields')
+	const toggleChoices = buildFieldChoices(config.fields, isToggleField, 'No toggle fields')
 	const numericFieldIds = [
 		...new Set(contentFields.filter((field) => NUMERIC_FIELD_TYPES.has(field.type)).map((field) => field.id)),
 	]
@@ -106,7 +108,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 		},
 		[config.actionIds.toggle]: {
 			name: config.names.toggle,
-			options: [...config.targetOptions, fieldOption(contentChoices)],
+			options: [...config.targetOptions, fieldOption(toggleChoices)],
 			callback: async (event) => {
 				await self.sendAndRefresh({
 					...config.payloadFor(event.options),

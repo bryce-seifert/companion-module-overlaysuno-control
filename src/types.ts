@@ -72,6 +72,9 @@ export const NUMERIC_FIELD_TYPES: ReadonlySet<string> = new Set([
  */
 export const ACTION_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Button, FieldType.TimeControl])
 
+/** Field types the Toggle* commands can flip. */
+export const TOGGLE_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Checkbox, FieldType.Boolean])
+
 /**
  * Field types whose live values are structured JSON (e.g. font specs).
  * These are useless as button text — presets should show only the field label.

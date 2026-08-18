@@ -131,12 +131,13 @@ function buildRotaryPreset(
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
+	const label = fieldChoiceLabel(field)
 	presets[config.presetKey('rotary', field)] = {
 		type: 'button',
 		category: config.category,
-		name: `${field.title}: Rotary`,
+		name: `${label}: Rotary`,
 		style: {
-			text: `${field.title}\\nRotary`,
+			text: `${label}\\nRotary`,
 			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
@@ -167,12 +168,13 @@ function buildAdjustPreset(
 	icon: string,
 	suffix: string,
 ): void {
+	const label = fieldChoiceLabel(field)
 	presets[config.presetKey(kind, field)] = {
 		type: 'button',
 		category: config.category,
-		name: `${field.title} ${suffix}`,
+		name: `${label} ${suffix}`,
 		style: {
-			text: field.title,
+			text: label,
 			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
@@ -196,12 +198,13 @@ function buildCheckboxPreset(
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
+	const label = fieldChoiceLabel(field)
 	presets[config.presetKey('toggle', field)] = {
 		type: 'button',
 		category: config.category,
-		name: `Toggle: ${field.title}`,
+		name: `Toggle: ${label}`,
 		style: {
-			text: `Toggle\\n${field.title}`,
+			text: `Toggle\\n${label}`,
 			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
@@ -223,12 +226,13 @@ function buildExecutePreset(
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
+	const label = fieldChoiceLabel(field)
 	presets[config.presetKey('exec', field)] = {
 		type: 'button',
 		category: config.category,
-		name: `Execute: ${field.title}`,
+		name: `Execute: ${label}`,
 		style: {
-			text: `Execute\\n${field.title}`,
+			text: `Execute\\n${label}`,
 			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
@@ -255,13 +259,14 @@ function buildTimeControlPresets(
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
+	const label = fieldChoiceLabel(field)
 	for (const action of TIME_ACTIONS) {
 		presets[config.presetKey(action.kind, field)] = {
 			type: 'button',
 			category: config.category,
-			name: `${field.title}: ${action.label}`,
+			name: `${label}: ${action.label}`,
 			style: {
-				text: `${field.title}\\n${action.label}`,
+				text: `${label}\\n${action.label}`,
 				size: 15,
 				color: COLOR.white,
 				bgcolor: COLOR.surface,

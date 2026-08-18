@@ -1,19 +1,36 @@
 import type { InputValue, SomeCompanionFeedbackInputField, CompanionOptionValues } from '@companion-module/base'
 import type { OverlayModelField } from './api.js'
-import { ACTION_FIELD_TYPES, FieldType, NUMERIC_FIELD_TYPES, type DropdownChoice, type JsonValue } from './types.js'
+import {
+	ACTION_FIELD_TYPES,
+	FieldType,
+	NUMERIC_FIELD_TYPES,
+	TOGGLE_FIELD_TYPES,
+	type DropdownChoice,
+	type JsonValue,
+} from './types.js'
 import { expandEscapeSequences } from './util.js'
 import { sanitizeName, normalizeColor, isRgbObject } from './variables.js'
 
 export { ACTION_FIELD_TYPES, NUMERIC_FIELD_TYPES }
 
+/** Apps differ on casing for editor types (e.g. "timeControl"), so compare lowercased. */
+function fieldType(field: OverlayModelField): string {
+	return field.type.toLowerCase()
+}
+
 /** True for button / time-control fields that are triggered, not set. */
 export function isActionField(field: OverlayModelField): boolean {
-	return ACTION_FIELD_TYPES.has(field.type)
+	return ACTION_FIELD_TYPES.has(fieldType(field))
 }
 
 /** True for fields that hold content values (everything except action fields). */
 export function isContentField(field: OverlayModelField): boolean {
 	return !isActionField(field)
+}
+
+/** True for boolean fields a Toggle* command can flip. */
+export function isToggleField(field: OverlayModelField): boolean {
+	return TOGGLE_FIELD_TYPES.has(fieldType(field))
 }
 
 /** Escape a string so it can be embedded in a Companion expression single-quoted literal. */

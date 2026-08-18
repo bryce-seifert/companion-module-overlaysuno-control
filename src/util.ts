@@ -36,14 +36,14 @@ export function parseJsonValueOrString(raw: string): JsonValue | string {
 	}
 }
 
+/** An escape a user would only write deliberately*/
+const ESCAPE_SEQUENCE = /\\[\\nrt]/
+
 /**
- * Expand backslash escapes typed into a Companion text option into real characters.
- * Single-line inputs can't hold a newline, so list-style commands (SetNames, AddNames, …)
- * are written as `Alice\nBob`; without this the API receives the two literal characters.
- * `\\` escapes a backslash for values that need one.
+ * Only applied to values that look escaped and hold no real line break
  */
 export function expandEscapeSequences(raw: string): string {
-	if (!raw.includes('\\')) return raw
+	if (!ESCAPE_SEQUENCE.test(raw) || /[\n\r]/.test(raw)) return raw
 	return raw.replace(/\\([\\nrt])/g, (_match, escaped: string) => {
 		switch (escaped) {
 			case 'n':
