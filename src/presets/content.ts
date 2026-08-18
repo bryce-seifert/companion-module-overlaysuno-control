@@ -6,7 +6,7 @@ import { buildFieldPresets } from './fields.js'
 
 export function buildContentFieldPresets(model: OverlayModel, presets: CompanionPresetDefinitions): void {
 	buildFieldPresets(model, presets, {
-		category: `Overlay - ${model.name} - Content`,
+		category: `${model.name}`,
 		dividerKey: (sectionIndex, title) => `content_${model.id}_group_${sectionIndex}_${sanitizeName(title)}`,
 		presetKey: (kind, field) => `${kind}_${model.id}_${field.id}`,
 		actionIds: {
