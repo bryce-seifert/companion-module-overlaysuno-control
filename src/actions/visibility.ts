@@ -43,7 +43,7 @@ export function getVisibilityActions(self: ModuleInstance): CompanionActionDefin
 					label: 'Overlay',
 					choices,
 					default: choices[0]?.id ?? '',
-					allowCustom: true,
+					allowCustom: false,
 					isVisibleExpression: `$(options:action) != 'show_all' && $(options:action) != 'hide_all'`,
 				},
 			],

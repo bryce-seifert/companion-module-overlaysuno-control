@@ -27,7 +27,7 @@ export function getSlotActions(self: ModuleInstance): CompanionActionDefinitions
 					label: 'Overlay',
 					choices,
 					default: choices[0]?.id ?? '',
-					allowCustom: true,
+					allowCustom: false,
 				},
 				{
 					id: 'mode',

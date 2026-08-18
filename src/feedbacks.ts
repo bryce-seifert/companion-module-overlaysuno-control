@@ -79,7 +79,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 					label: 'Overlay',
 					choices: contentOverlays,
 					default: contentOverlays[0]?.id ?? '',
-					allowCustom: true,
+					allowCustom: false,
 				},
 				{
 					id: 'fieldId',
@@ -157,7 +157,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 					label: 'Overlay',
 					choices: overlayChoices,
 					default: overlayChoices[0]?.id ?? '',
-					allowCustom: true,
+					allowCustom: false,
 				},
 			],
 			callback: (feedback) => {

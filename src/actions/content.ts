@@ -13,7 +13,7 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 		label: 'Overlay',
 		choices,
 		default: choices[0]?.id ?? '',
-		allowCustom: true,
+		allowCustom: false,
 	}
 
 	return {
@@ -26,7 +26,7 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 					label: 'Overlay',
 					choices,
 					default: choices[0]?.id ?? '',
-					allowCustom: true,
+					allowCustom: false,
 				},
 				{
 					id: 'content',
