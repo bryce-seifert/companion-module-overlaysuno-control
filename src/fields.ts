@@ -29,34 +29,18 @@ function colorNumberToHex(n: number): string {
 	return `#${((n >>> 0) & 0xffffff).toString(16).padStart(6, '0')}`
 }
 
-/** Human-readable suffix so fields with duplicate titles stay distinguishable. */
-export function fieldTypeLabel(type: string): string {
-	switch (type) {
-		case FieldType.Color:
-			return 'Color'
-		case FieldType.Checkbox:
-			return 'Toggle'
-		case FieldType.Selection:
-			return 'Options'
-		case FieldType.MetricFont:
-			return 'Font'
-		case FieldType.Number:
-		case FieldType.Counter:
-		case FieldType.NormalizedNumber:
-			return 'Number'
-		case FieldType.Button:
-			return 'Button'
-		case FieldType.TimeControl:
-			return 'Time'
-		default:
-			return ''
-	}
+/** Format a field identifier for display, e.g. "winsColor" or "wins_color" -> "Wins Color". */
+function fieldIdLabel(id: string): string {
+	return id
+		.trim()
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/[_-]+/g, ' ')
+		.replace(/\b\w/g, (character) => character.toUpperCase())
 }
 
-/** Dropdown / button label for a field: its title plus a type hint (e.g. "Title (Color)"). */
+/** Dropdown / button label for a field, using its identifier to distinguish generic duplicate titles. */
 export function fieldChoiceLabel(field: OverlayModelField): string {
-	const suffix = fieldTypeLabel(field.type)
-	return suffix ? `${field.title} (${suffix})` : field.title
+	return fieldIdLabel(field.id) || field.title
 }
 
 /**
