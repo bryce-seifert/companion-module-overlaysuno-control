@@ -50,7 +50,7 @@ function addVisibilityButton(presets: CompanionPresetDefinitions, spec: Visibili
 		name: spec.name,
 		style: {
 			text: spec.label,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -82,7 +82,7 @@ function addBulkVisibilityButton(
 		name,
 		style: {
 			text: label,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,

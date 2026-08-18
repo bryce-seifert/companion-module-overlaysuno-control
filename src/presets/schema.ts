@@ -42,7 +42,7 @@ export function buildSchemaPresets(self: ModuleInstance, presets: CompanionPrese
 			name: displayName,
 			style: {
 				text: displayName.replace(/ /g, '\\n'),
-				size: '14',
+				size: 15,
 				color: COLOR.white,
 				bgcolor: COLOR.surface,
 				show_topbar: false,

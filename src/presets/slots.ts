@@ -20,7 +20,7 @@ export function buildSlotPresets(model: OverlayModel, presets: CompanionPresetDe
 			name: `Overlay - ${model.name} - ${sa.label}`,
 			style: {
 				text: `${sa.label}`,
-				size: '14',
+				size: 15,
 				color: COLOR.white,
 				bgcolor: COLOR.surface,
 				show_topbar: false,

@@ -84,7 +84,7 @@ function buildSetPreset(
 		name: `Set: ${label}`,
 		style: {
 			text: `Set ${label}`,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -137,7 +137,7 @@ function buildRotaryPreset(
 		name: `${field.title}: Rotary`,
 		style: {
 			text: `${field.title}\\nRotary`,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -173,7 +173,7 @@ function buildAdjustPreset(
 		name: `${field.title} ${suffix}`,
 		style: {
 			text: field.title,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -202,7 +202,7 @@ function buildCheckboxPreset(
 		name: `Toggle: ${field.title}`,
 		style: {
 			text: `Toggle\\n${field.title}`,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -229,7 +229,7 @@ function buildExecutePreset(
 		name: `Execute: ${field.title}`,
 		style: {
 			text: `Execute\\n${field.title}`,
-			size: '14',
+			size: 15,
 			color: COLOR.white,
 			bgcolor: COLOR.surface,
 			show_topbar: false,
@@ -262,7 +262,7 @@ function buildTimeControlPresets(
 			name: `${field.title}: ${action.label}`,
 			style: {
 				text: `${field.title}\\n${action.label}`,
-				size: '14',
+				size: 15,
 				color: COLOR.white,
 				bgcolor: COLOR.surface,
 				show_topbar: false,
