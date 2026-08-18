@@ -7,9 +7,11 @@ import { UpdateFeedbacks } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import {
 	ApiError,
+	applySelectionSources,
 	isRateLimitError,
 	isUnsupportedCommandError,
 	getAppInfo,
+	fetchSelectionSources,
 	fetchThumbnailDataUri,
 	getApiSchema,
 	getAvailableCommands,
@@ -338,6 +340,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 				this.customizationModel = model
 			},
 		)
+		await this.resolveSelectionSources(epoch)
+	}
+
+	/**
+	 * Selection fields with `source: 'url'` arrive with placeholder options
+	 * ("id1"/"Title 1"); swap in the app's real labels before definitions are built.
+	 */
+	private async resolveSelectionSources(epoch: number): Promise<void> {
+		const models = [...this.overlayModels, ...(this.customizationModel ? [this.customizationModel] : [])]
+		if (models.length === 0) return
+
+		const sources = await fetchSelectionSources(models, (message) => this.log('warn', message))
+		if (epoch !== this.connectionEpoch) return
+		applySelectionSources(models, sources)
 	}
 
 	/** Fold a /control response into the state the rest of the module reads. */

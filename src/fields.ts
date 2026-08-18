@@ -200,7 +200,8 @@ function buildValueOptions(
 			label: `Value - ${field.title}`,
 			default: field.selections?.[0]?.id ?? '',
 			choices: (field.selections ?? []).map((s) => ({ id: s.id, label: s.title })),
-			allowCustom: true,
+			// URL-sourced lists are a fixed enum; free-text entries aren't valid.
+			allowCustom: !field.sourceUrl,
 			isVisibleExpression: `$(options:fieldId) == '${escExpr(field.id)}'`,
 		})
 	}

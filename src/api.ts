@@ -1,4 +1,4 @@
-import { HttpStatus, VISIBLE_SUBCOMPOSITION_STATE, type JsonObject, type JsonValue } from './types.js'
+import { FieldType, HttpStatus, VISIBLE_SUBCOMPOSITION_STATE, type JsonObject, type JsonValue } from './types.js'
 import { isPlainObject } from './util.js'
 
 const BASE_URL = 'https://app.overlays.uno/apiv2/controlapps'
@@ -41,6 +41,10 @@ export interface OverlayModelField {
 	type: string
 	/** Present when type is 'selection' — the allowed enum values. */
 	selections?: OverlayFieldSelection[]
+	/** 'url' when the real selections must be fetched from `sourceUrl`. */
+	source?: string
+	/** Asset URL holding the real selections; often protocol-relative. */
+	sourceUrl?: string
 }
 
 export interface OverlayModelGroup {
@@ -276,17 +280,18 @@ export async function getAppInfo(apiToken: string): Promise<AppInfo> {
 	return (await response.json()) as AppInfo
 }
 
+/** Add the scheme the API omits on asset URLs (protocol-relative or bare host). */
+function normalizeAssetUrl(raw: string): string {
+	const url = raw.trim()
+	if (!url) return ''
+	if (url.startsWith('//')) return `https:${url}`
+	if (!/^https?:\/\//i.test(url)) return `https://${url}`
+	return url
+}
+
 /** Normalize the thumbnail URL from AppInfo (protocol-relative / missing scheme / size). */
 export function normalizeThumbnailUrl(thumbnail: string): string {
-	if (!thumbnail) return ''
-
-	let url = thumbnail.trim()
-	if (url.startsWith('//')) {
-		url = `https:${url}`
-	} else if (!/^https?:\/\//i.test(url)) {
-		url = `https://${url}`
-	}
-	return url.replace('fit-in/150x150', 'fit-in/288x288')
+	return normalizeAssetUrl(thumbnail).replace('fit-in/150x150', 'fit-in/288x288')
 }
 
 /**
@@ -326,6 +331,73 @@ export async function getControlState(apiToken: string): Promise<ControlSubCompo
 
 	const json: unknown = await response.json()
 	return Array.isArray(json) ? (json as ControlSubComposition[]) : []
+}
+
+/**
+ * Fields whose selections come from a URL. The model itself only carries
+ * placeholders ("id1"/"Title 1"), so the real list has to be fetched separately.
+ */
+function urlSourcedSelectionFields(models: OverlayModel[]): OverlayModelField[] {
+	return models
+		.flatMap((model) => model.model)
+		.filter((field) => field.type === FieldType.Selection && !!field.sourceUrl)
+}
+
+/** Fetch one selection source document, e.g. [{ id: '7', title: 'Slow' }, …]. */
+async function getSelectionSource(sourceUrl: string): Promise<OverlayFieldSelection[]> {
+	const response = await request(
+		normalizeAssetUrl(sourceUrl),
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: 'selection options',
+			errorPrefix: 'Failed to fetch selection options',
+		},
+	)
+
+	const json: unknown = await response.json()
+	if (!Array.isArray(json)) return []
+
+	const selections: OverlayFieldSelection[] = []
+	for (const entry of json) {
+		if (!isPlainObject(entry)) continue
+		const id = entry.id
+		if (typeof id !== 'string' && typeof id !== 'number') continue
+		selections.push({ id, title: typeof entry.title === 'string' ? entry.title : String(id) })
+	}
+	return selections
+}
+
+/**
+ * Fetch the real selections for every URL-sourced field in the given models,
+ * keyed by source URL. Each URL is fetched once; failures are reported and skipped
+ * so the rest of the model still loads.
+ */
+export async function fetchSelectionSources(
+	models: OverlayModel[],
+	onError: (message: string) => void,
+): Promise<Map<string, OverlayFieldSelection[]>> {
+	const urls = [...new Set(urlSourcedSelectionFields(models).map((field) => field.sourceUrl as string))]
+
+	const results = await Promise.all(
+		urls.map(async (url): Promise<[string, OverlayFieldSelection[]] | null> => {
+			try {
+				return [url, await getSelectionSource(url)]
+			} catch (error) {
+				onError(`Could not load selection options from ${url}: ${error}`)
+				return null
+			}
+		}),
+	)
+
+	return new Map(results.filter((entry): entry is [string, OverlayFieldSelection[]] => entry !== null))
+}
+
+/** Replace placeholder selections with the fetched ones, in place. */
+export function applySelectionSources(models: OverlayModel[], sources: Map<string, OverlayFieldSelection[]>): void {
+	for (const field of urlSourcedSelectionFields(models)) {
+		const selections = sources.get(field.sourceUrl as string)
+		if (selections?.length) field.selections = selections
+	}
 }
 
 export async function getApiSchema(apiToken: string): Promise<ApiCommandEntry[]> {
