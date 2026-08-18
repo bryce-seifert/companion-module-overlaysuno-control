@@ -28,7 +28,7 @@ export function buildSchemaPresets(self: ModuleInstance, presets: CompanionPrese
 	const appName = self.appInfo?.name ?? 'Overlays Uno'
 
 	for (const cmd of collectSchemaCommands(self)) {
-		const category = cmd.group ? `Overlay - ${appName} - ${cmd.group}` : appName
+		const category = cmd.group ? `${appName} - ${cmd.group}` : appName
 		const displayName = titleCase(cmd.title)
 
 		const options: Record<string, InputValue> = {}

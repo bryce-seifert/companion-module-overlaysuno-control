@@ -4,7 +4,7 @@ import { COLOR } from '../style.js'
 import { ICON_SLOT_TAKE_FIRST, ICON_SLOT_TAKE_PREVIOUS, ICON_SLOT_TAKE_NEXT, ICON_SLOT_TAKE_LAST } from '../icons.js'
 
 export function buildSlotPresets(model: OverlayModel, presets: CompanionPresetDefinitions): void {
-	const category = `Overlay - ${model.name} - Slots`
+	const category = `${model.name} - Slots`
 
 	const slotActions: { id: string; mode: string; label: string; icon: string }[] = [
 		{ id: 'first', mode: 'first', label: 'First Slot', icon: ICON_SLOT_TAKE_FIRST },
@@ -17,7 +17,7 @@ export function buildSlotPresets(model: OverlayModel, presets: CompanionPresetDe
 		presets[`slot_${sa.id}_${model.id}`] = {
 			type: 'button',
 			category,
-			name: `Overlay - ${model.name} - ${sa.label}`,
+			name: `${model.name} - ${sa.label}`,
 			style: {
 				text: `${sa.label}`,
 				size: 15,
