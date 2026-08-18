@@ -67,6 +67,12 @@ export const NUMERIC_FIELD_TYPES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Field types that are triggered via Execute* commands rather than Set*.
+ * Button runs a one-shot action; TimeControl exposes play/pause/reset/start.
+ */
+export const ACTION_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Button, FieldType.TimeControl])
+
+/**
  * Field types whose live values are structured JSON (e.g. font specs).
  * These are useless as button text — presets should show only the field label.
  */

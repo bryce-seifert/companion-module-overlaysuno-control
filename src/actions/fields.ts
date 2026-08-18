@@ -4,7 +4,14 @@ import type {
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
 import type { ApiPayload, OverlayModelField } from '../api.js'
-import { buildFieldValueInputs, escExpr, NUMERIC_FIELD_TYPES } from '../fields.js'
+import {
+	buildFieldChoices,
+	buildFieldValueInputs,
+	escExpr,
+	isActionField,
+	isContentField,
+	NUMERIC_FIELD_TYPES,
+} from '../fields.js'
 import type { ModuleInstance } from '../main.js'
 import type { DropdownChoice, JsonObject } from '../types.js'
 import { EXECUTE_FUNCTION_CHOICES } from './shared.js'
@@ -45,10 +52,12 @@ function fieldOption(choices: DropdownChoice[]): SomeCompanionActionInputField {
 }
 
 export function buildFieldActions(self: ModuleInstance, config: FieldActionConfig): CompanionActionDefinitions {
-	const valueInputs = buildFieldValueInputs(config.fields)
-	const fieldChoices = valueInputs.choices
+	const contentFields = config.fields.filter(isContentField)
+	const valueInputs = buildFieldValueInputs(contentFields)
+	const contentChoices = valueInputs.choices
+	const actionChoices = buildFieldChoices(config.fields, isActionField, 'No action fields')
 	const numericFieldIds = [
-		...new Set(config.fields.filter((field) => NUMERIC_FIELD_TYPES.has(field.type)).map((field) => field.id)),
+		...new Set(contentFields.filter((field) => NUMERIC_FIELD_TYPES.has(field.type)).map((field) => field.id)),
 	]
 	const operationOptions: SomeCompanionActionInputField[] = numericFieldIds.length
 		? [
@@ -70,7 +79,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 	return {
 		[config.actionIds.set]: {
 			name: config.names.set,
-			options: [...config.targetOptions, fieldOption(fieldChoices), ...operationOptions, ...valueInputs.valueOptions],
+			options: [...config.targetOptions, fieldOption(contentChoices), ...operationOptions, ...valueInputs.valueOptions],
 			callback: async (event) => {
 				const operation = event.options.operation
 				const command =
@@ -97,7 +106,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 		},
 		[config.actionIds.toggle]: {
 			name: config.names.toggle,
-			options: [...config.targetOptions, fieldOption(fieldChoices)],
+			options: [...config.targetOptions, fieldOption(contentChoices)],
 			callback: async (event) => {
 				await self.sendAndRefresh({
 					...config.payloadFor(event.options),
@@ -110,7 +119,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 			name: config.names.execute,
 			options: [
 				...config.targetOptions,
-				fieldOption(fieldChoices),
+				fieldOption(actionChoices),
 				{
 					id: 'value',
 					type: 'dropdown',

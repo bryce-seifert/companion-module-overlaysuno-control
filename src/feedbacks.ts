@@ -1,7 +1,7 @@
 import { COLOR } from './style.js'
 import type { ModuleInstance } from './main.js'
 import { hasPayload } from './api.js'
-import { buildFieldValueInputs } from './fields.js'
+import { buildFieldValueInputs, isContentField } from './fields.js'
 import { inferredContentModels } from './inferred-model.js'
 import { GLOBAL_OVERLAY_ID, type DropdownChoice, type JsonValue } from './types.js'
 import { normalizeColor } from './variables.js'
@@ -53,14 +53,14 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	// Same type-aware value editors the Set Content Field action uses.
 	// Bespoke apps have no models, so fall back to fields inferred from /control payloads.
 	const contentModels = inferredContentModels(self)
-	const contentFields = contentModels.flatMap((m) => m.model)
+	const contentFields = contentModels.flatMap((m) => m.model).filter(isContentField)
 	const contentInputs = buildFieldValueInputs(contentFields)
 	const contentFieldTypes = new Map(contentFields.map((f) => [f.id, f.type]))
 	const contentOverlays: DropdownChoice[] =
 		contentModels.length > 0
 			? contentModels.map((m) => ({ id: m.id, label: m.name }))
 			: [{ id: '', label: 'No overlays loaded' }]
-	const customizationFields = self.customizationModel?.model ?? []
+	const customizationFields = (self.customizationModel?.model ?? []).filter(isContentField)
 	const customizationInputs = buildFieldValueInputs(customizationFields)
 	const customizationFieldTypes = new Map(customizationFields.map((field) => [field.id, field.type]))
 
