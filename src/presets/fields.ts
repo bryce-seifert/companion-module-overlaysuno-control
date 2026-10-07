@@ -48,15 +48,13 @@ function buildFieldPreset(
 	presets: CompanionPresetDefinitions,
 	config: FieldPresetConfig,
 ): void {
-	const type = field.type.toLowerCase()
-
-	if (NUMERIC_FIELD_TYPES.has(type)) {
+	if (NUMERIC_FIELD_TYPES.has(field.type)) {
 		buildNumberPresets(field, presets, config)
-	} else if (type === FieldType.Checkbox) {
+	} else if (field.type === FieldType.Checkbox) {
 		buildCheckboxPreset(field, presets, config)
-	} else if (type === FieldType.Button) {
+	} else if (field.type === FieldType.Button) {
 		buildExecutePreset(field, presets, config)
-	} else if (type === FieldType.TimeControl) {
+	} else if (field.type === FieldType.TimeControl) {
 		buildTimeControlPresets(field, presets, config)
 	} else {
 		buildSetPreset(field, presets, config)

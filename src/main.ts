@@ -9,6 +9,7 @@ import {
 	ApiError,
 	applySelectionSources,
 	isRateLimitError,
+	isTransientError,
 	isUnsupportedCommandError,
 	getAppInfo,
 	fetchSelectionSources,
@@ -248,6 +249,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 		const message = errorMessage(error)
 		this.updateStatus(InstanceStatus.ConnectionFailure, message)
+
+		if (isTransientError(error)) {
+			this.log('error', `Connection failed: ${message}. Retrying in ${CONNECT_RETRY_SECONDS}s.`)
+			this.scheduleReconnect(CONNECT_RETRY_SECONDS)
+			return
+		}
+
 		this.log('error', `Connection failed: ${message}`)
 	}
 
@@ -304,13 +312,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			apply(result)
 		} catch (error) {
 			if (epoch !== this.connectionEpoch) return
-			if (isRateLimitError(error)) throw error
 			if (isUnsupportedCommandError(error)) {
 				this.unsupportedCommands.add(command)
 				this.log('debug', `${command} is not supported by this control app`)
 				return
 			}
-			this.log('warn', `${command} failed: ${error}`)
+			// Anything else would leave the module "connected" with missing structure — fail the connect instead.
+			throw error
 		}
 	}
 

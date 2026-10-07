@@ -154,6 +154,12 @@ export function isRateLimitError(error: unknown): error is ApiError {
 	return error instanceof ApiError && error.statusCode === HttpStatus.TooManyRequests
 }
 
+/** Worth retrying: a network failure (fetch throws a non-ApiError) or a server-side 5xx. */
+export function isTransientError(error: unknown): boolean {
+	if (!(error instanceof ApiError)) return true
+	return error.statusCode >= HttpStatus.InternalServerError
+}
+
 /** Permanent for this token: the app doesn't implement this command. */
 export function isUnsupportedCommandError(error: unknown): error is ApiError {
 	return error instanceof ApiError && error.statusCode === HttpStatus.BadRequest
@@ -249,15 +255,23 @@ export async function getOverlays(apiToken: string): Promise<OverlayInfo[]> {
 	return asArrayPayload<OverlayInfo>(res.payload)
 }
 
+/** Apps differ on casing for editor types (e.g. "timeControl"), so lowercase them once on the way in. */
+function normalizeModel(model: OverlayModel): OverlayModel {
+	return {
+		...model,
+		model: (model.model ?? []).map((field) => ({ ...field, type: String(field.type ?? '').toLowerCase() })),
+	}
+}
+
 export async function getOverlayModels(apiToken: string): Promise<OverlayModel[]> {
 	const res = await sendCommand(apiToken, { command: 'GetOverlayModels' })
-	return asArrayPayload<OverlayModel>(res.payload)
+	return asArrayPayload<OverlayModel>(res.payload).map(normalizeModel)
 }
 
 export async function getCustomizationModel(apiToken: string): Promise<OverlayModel | null> {
 	const res = await sendCommand(apiToken, { command: 'GetCustomizationModel' })
 	const payload = res.payload
-	if (isPlainObject(payload)) return payload as unknown as OverlayModel
+	if (isPlainObject(payload)) return normalizeModel(payload as unknown as OverlayModel)
 	return null
 }
 
