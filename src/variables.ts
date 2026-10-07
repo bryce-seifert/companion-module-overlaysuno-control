@@ -58,16 +58,29 @@ interface VariableEntry {
 	value: VariableValue | undefined
 }
 
-function createUniqueNameTracker(): (subCompositionName: string) => { id: string; label: string } {
-	const nameCounts = new Map<string, number>()
+interface UniqueName {
+	id: string
+	label: string
+}
 
-	return (subCompositionName) => {
-		const base = sanitizeName(subCompositionName)
+/**
+ * Variable-safe name per overlay id. Overlays sharing a name get "_2", "_3"… suffixes;
+ * the same overlay id always resolves to the same name.
+ */
+function createUniqueNameTracker(): (overlayId: string, overlayName: string) => UniqueName {
+	const nameCounts = new Map<string, number>()
+	const byId = new Map<string, UniqueName>()
+
+	return (overlayId, overlayName) => {
+		const existing = byId.get(overlayId)
+		if (existing) return existing
+
+		const base = sanitizeName(overlayName)
 		const n = (nameCounts.get(base) ?? 0) + 1
 		nameCounts.set(base, n)
-		return n === 1
-			? { id: base, label: subCompositionName }
-			: { id: `${base}_${n}`, label: `${subCompositionName} (${n})` }
+		const name = n === 1 ? { id: base, label: overlayName } : { id: `${base}_${n}`, label: `${overlayName} (${n})` }
+		byId.set(overlayId, name)
+		return name
 	}
 }
 
@@ -84,14 +97,16 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 		entries.push({ variableId, name, value })
 	}
 
+	const uniqueName = createUniqueNameTracker()
+
 	add('overlay_count', 'Overlays - Total Count', self.overlayList.length)
 
 	for (const overlay of self.overlayList) {
-		const safeName = sanitizeName(overlay.name)
+		const { id: safeName, label } = uniqueName(overlay.id, overlay.name)
 		const visible = self.overlayVisibility.get(overlay.id)
 		add(
 			`overlay_${safeName}_visibility`,
-			`Overlay - ${overlay.name} - Visible`,
+			`Overlay - ${label} - Visible`,
 			self.overlayVisibility.has(overlay.id) ? (visible ? 'true' : 'false') : undefined,
 		)
 	}
@@ -104,14 +119,14 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 
 	// Per-overlay content field variables (driven by overlay models).
 	for (const model of self.overlayModels) {
-		const safeOverlayName = sanitizeName(model.name)
+		const { id: safeOverlayName, label } = uniqueName(model.id, model.name)
 		const content = self.overlayContent.get(model.id) ?? {}
 
 		for (const field of model.model) {
 			const safeFieldName = sanitizeName(field.id)
 			add(
 				`overlay_${safeOverlayName}_${safeFieldName}`,
-				`Overlay - ${model.name} - ${field.title}`,
+				`Overlay - ${label} - ${field.title}`,
 				formatValue(normalizeColor(content[field.id], field.type)),
 			)
 		}
@@ -119,14 +134,13 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 
 	// Subcompositions with no model behind them (bespoke apps).
 	const modelledIds = new Set(self.overlayModels.map((m) => m.id))
-	const uniqueName = createUniqueNameTracker()
 
 	for (const sub of self.controlState) {
 		if (sub.mainComposition || modelledIds.has(sub.subCompositionId)) continue
 		// Skip internal composition layers that carry no data of their own.
 		if (!hasPayload(sub)) continue
 
-		const { id: safeName, label } = uniqueName(sub.subCompositionName)
+		const { id: safeName, label } = uniqueName(sub.subCompositionId, sub.subCompositionName)
 		add(
 			`overlay_${safeName}_visibility`,
 			`Overlay - ${label} - Visible`,

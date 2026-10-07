@@ -40,6 +40,12 @@ import { errorMessage, maskApiToken } from './util.js'
 
 export type OverlayChoice = DropdownChoice
 
+/** The only non-app subcomposition, when there is exactly one — how single-overlay apps are targeted. */
+function soleOverlaySub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
+	const overlays = subs.filter((s) => !s.mainComposition)
+	return overlays.length === 1 ? overlays[0] : undefined
+}
+
 export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	config!: ModuleConfig
 	secrets!: ModuleSecrets
@@ -381,10 +387,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 		// Single-overlay apps key their visibility under 'global'.
 		if (this.overlayList.length === 0) {
-			const only = subs.filter((s) => !s.mainComposition)
-			if (only.length === 1) {
-				this.overlayVisibility.set(GLOBAL_OVERLAY_ID, isSubCompositionVisible(only[0]))
-			}
+			const only = soleOverlaySub(subs)
+			if (only) this.overlayVisibility.set(GLOBAL_OVERLAY_ID, isSubCompositionVisible(only))
 		}
 	}
 
@@ -533,10 +537,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	 */
 	private resolveContentOverlayId(overlayId: string, subs: ControlSubComposition[]): string | undefined {
 		if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) return overlayId
-
-		const only = subs.filter((s) => !s.mainComposition)
-		if (only.length === 1) return only[0].subCompositionId
-		return undefined
+		return soleOverlaySub(subs)?.subCompositionId
 	}
 
 	private findContentPayload(overlayId: string, subs: ControlSubComposition[]): JsonObject | undefined {
@@ -552,9 +553,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		if (this.overlayContent.size === 1) {
 			return [...this.overlayContent.values()][0]
 		}
-		const only = this.controlState.filter((s) => !s.mainComposition)
-		if (only.length === 1) return this.overlayContent.get(only[0].subCompositionId)
-		return undefined
+		const only = soleOverlaySub(this.controlState)
+		return only ? this.overlayContent.get(only.subCompositionId) : undefined
 	}
 
 	/** Live content payload for one overlay — used by action Learn callbacks. */

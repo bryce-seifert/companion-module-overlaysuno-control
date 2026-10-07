@@ -27,7 +27,7 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 					multiline: true,
 					useVariables: true,
 					tooltip:
-						'The value to send with the command. Leave empty if the command takes no value. List commands expect one entry per line; \\n also works as a line break.',
+						'The value to send with the command. Leave empty if the command takes no value. List commands expect one entry per line; \\n also works as a line break; write \\\\ for a literal backslash.',
 				},
 				{
 					id: 'id',

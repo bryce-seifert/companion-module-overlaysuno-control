@@ -55,14 +55,12 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	const contentModels = inferredContentModels(self)
 	const contentFields = contentModels.flatMap((m) => m.model).filter(isContentField)
 	const contentInputs = buildFieldValueInputs(contentFields)
-	const contentFieldTypes = new Map(contentFields.map((f) => [f.id, f.type]))
 	const contentOverlays: DropdownChoice[] =
 		contentModels.length > 0
 			? contentModels.map((m) => ({ id: m.id, label: m.name }))
 			: [{ id: '', label: 'No overlays loaded' }]
 	const customizationFields = (self.customizationModel?.model ?? []).filter(isContentField)
 	const customizationInputs = buildFieldValueInputs(customizationFields)
-	const customizationFieldTypes = new Map(customizationFields.map((field) => [field.id, field.type]))
 
 	self.setFeedbackDefinitions({
 		overlay_content_field: {
@@ -97,7 +95,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 
 				const fieldId = String(feedback.options.fieldId)
 				const expected = contentInputs.resolveValue(feedback.options)
-				return contentMatches(content[fieldId], expected, contentFieldTypes.get(fieldId))
+				return contentMatches(content[fieldId], expected, contentInputs.typeOf(fieldId))
 			},
 			learn: async (feedback) => {
 				const content = await self.fetchLiveContent(String(feedback.options.overlayId))
@@ -132,7 +130,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			callback: (feedback) => {
 				const fieldId = String(feedback.options.fieldId)
 				const expected = customizationInputs.resolveValue(feedback.options)
-				return contentMatches(self.customizationValues[fieldId], expected, customizationFieldTypes.get(fieldId))
+				return contentMatches(self.customizationValues[fieldId], expected, customizationInputs.typeOf(fieldId))
 			},
 			learn: async (feedback) => {
 				const values = await self.fetchLiveCustomization()

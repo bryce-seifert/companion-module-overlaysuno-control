@@ -96,6 +96,13 @@ function isJsonArgType(type: string): boolean {
 	return type === FieldType.Json || type === 'JSON'
 }
 
+/** min/max are visual hints only; fall back to the widest safe range, negatives included. */
+function numericArgRange(arg: CommandArgument): { min: number; max: number; default: number } {
+	const min = toFiniteNumber(arg.min, -Number.MAX_SAFE_INTEGER)
+	const max = toFiniteNumber(arg.max, Number.MAX_SAFE_INTEGER)
+	return { min, max, default: Math.min(max, Math.max(min, toFiniteNumber(arg.default, 0))) }
+}
+
 /**
  * Build the Companion option input for a single command argument.
  * `overlayChoices` seeds the dropdown for `overlaySelection` arguments.
@@ -104,15 +111,7 @@ export function argInput(arg: CommandArgument, overlayChoices: DropdownChoice[])
 	const label = arg.title || arg.id
 
 	if (isNumericArgType(arg.type)) {
-		return {
-			id: arg.id,
-			type: 'number',
-			label,
-			default: toFiniteNumber(arg.default, 0),
-			min: toFiniteNumber(arg.min, 0),
-			// min/max are visual hints only; fall back to the widest safe range.
-			max: toFiniteNumber(arg.max, Number.MAX_SAFE_INTEGER),
-		}
+		return { id: arg.id, type: 'number', label, ...numericArgRange(arg) }
 	}
 
 	if (isJsonArgType(arg.type)) {
@@ -152,13 +151,14 @@ export function argInput(arg: CommandArgument, overlayChoices: DropdownChoice[])
 		default: arg.default ?? '',
 		multiline: true,
 		useVariables: true,
-		tooltip: 'Commands that take a list expect one entry per line. \\n also works as a line break.',
+		tooltip:
+			'Commands that take a list expect one entry per line. \\n also works as a line break; write \\\\ for a literal backslash.',
 	}
 }
 
 /** Default option value for a command argument, used to seed generated presets. */
 export function argDefault(arg: CommandArgument): InputValue {
-	if (isNumericArgType(arg.type)) return toFiniteNumber(arg.default, 0)
+	if (isNumericArgType(arg.type)) return numericArgRange(arg).default
 	if (isBooleanArgType(arg.type)) return arg.default === 'true'
 	if (arg.type === FieldType.Selection) return arg.default ?? arg.selections?.[0]?.id ?? ''
 	return arg.default ?? ''

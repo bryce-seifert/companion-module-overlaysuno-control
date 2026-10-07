@@ -119,6 +119,8 @@ export interface FieldValueInputs {
 	 * produce the option patch Learn should apply.
 	 */
 	learnValue: (options: CompanionOptionValues, live: JsonValue | undefined) => CompanionOptionValues | undefined
+	/** Type of the field the editors were built for, or undefined for a custom field id. */
+	typeOf: (fieldId: string) => string | undefined
 }
 
 interface CategorizedFields {
@@ -130,7 +132,6 @@ interface CategorizedFields {
 }
 
 function categorizeFields(fields: OverlayModelField[]): CategorizedFields {
-	const choices: DropdownChoice[] = []
 	const seen = new Set<string>()
 	const typeById = new Map<string, string>()
 	const selectionFields: OverlayModelField[] = []
@@ -140,7 +141,6 @@ function categorizeFields(fields: OverlayModelField[]): CategorizedFields {
 	for (const field of fields) {
 		if (seen.has(field.id)) continue
 		seen.add(field.id)
-		choices.push({ id: field.id, label: fieldChoiceLabel(field) })
 		typeById.set(field.id, field.type)
 
 		if (field.type === FieldType.Selection && field.selections?.length) {
@@ -152,12 +152,7 @@ function categorizeFields(fields: OverlayModelField[]): CategorizedFields {
 		}
 	}
 
-	choices.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-	if (choices.length === 0) {
-		choices.push({ id: '', label: 'No fields loaded' })
-	}
-
-	return { choices, typeById, selectionFields, checkboxIds, colorFields }
+	return { choices: buildFieldChoices(fields), typeById, selectionFields, checkboxIds, colorFields }
 }
 
 function buildValueOptions(
@@ -175,7 +170,9 @@ function buildValueOptions(
 		type: 'textinput',
 		label: 'Value',
 		default: '',
+		multiline: true,
 		useVariables: true,
+		tooltip: 'On a single line, \\n is a line break and \\t a tab. Write \\\\ for a literal backslash, e.g. C:\\\\new.',
 		isVisibleExpression: typedIds.length
 			? typedIds.map((id) => `$(options:fieldId) != '${escExpr(id)}'`).join(' && ')
 			: undefined,
@@ -316,5 +313,6 @@ export function buildFieldValueInputs(fields: OverlayModelField[]): FieldValueIn
 		valueOptions: buildValueOptions(categorized, selectionOptionId),
 		resolveValue: createResolveValue(categorized.typeById, selectionOptionId),
 		learnValue: createLearnValue(categorized.typeById, selectionOptionId),
+		typeOf: (fieldId) => categorized.typeById.get(fieldId),
 	}
 }

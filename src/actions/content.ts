@@ -20,14 +20,7 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 		set_overlay_content: {
 			name: 'Overlays - Set Content (JSON)',
 			options: [
-				{
-					id: 'overlayId',
-					type: 'dropdown',
-					label: 'Overlay',
-					choices,
-					default: choices[0]?.id ?? '',
-					allowCustom: false,
-				},
+				overlayOption,
 				{
 					id: 'content',
 					type: 'textinput',
