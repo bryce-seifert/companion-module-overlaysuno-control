@@ -3,21 +3,29 @@ import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
 import { overlayChoices } from './shared.js'
 
-const VISIBILITY_ACTION_COMMANDS = {
-	show: 'ShowOverlay',
-	hide: 'HideOverlay',
-	toggle: 'ToggleOverlay',
-	show_all: 'ShowAllOverlays',
-	hide_all: 'HideAllOverlays',
-} as const
+export const VISIBILITY_ACTIONS = [
+	{ id: 'show', label: 'Show', command: 'ShowOverlay' },
+	{ id: 'hide', label: 'Hide', command: 'HideOverlay' },
+	{ id: 'toggle', label: 'Toggle', command: 'ToggleOverlay' },
+	{ id: 'show_all', label: 'Show All', command: 'ShowAllOverlays' },
+	{ id: 'hide_all', label: 'Hide All', command: 'HideAllOverlays' },
+] as const
 
-type VisibilityAction = keyof typeof VISIBILITY_ACTION_COMMANDS
+/** Whether the app's schema lists the command behind a visibility action id. */
+export function supportsVisibilityAction(self: ModuleInstance, actionId: string): boolean {
+	const action = VISIBILITY_ACTIONS.find((a) => a.id === actionId)
+	return action !== undefined && self.hasCommand(action.command)
+}
 
-function isBulkVisibilityAction(action: string): action is 'show_all' | 'hide_all' {
+function isBulkVisibilityAction(action: string): boolean {
 	return action === 'show_all' || action === 'hide_all'
 }
 
 export function getVisibilityActions(self: ModuleInstance): CompanionActionDefinitions {
+	// Apps with their own visibility commands (e.g. ShowScorebug) reject these, so offer only what the schema lists.
+	const supported = VISIBILITY_ACTIONS.filter((action) => supportsVisibilityAction(self, action.id))
+	if (supported.length === 0) return {}
+
 	const choices = overlayChoices(self)
 
 	return {
@@ -28,14 +36,8 @@ export function getVisibilityActions(self: ModuleInstance): CompanionActionDefin
 					id: 'action',
 					type: 'dropdown',
 					label: 'Action',
-					choices: [
-						{ id: 'show', label: 'Show' },
-						{ id: 'hide', label: 'Hide' },
-						{ id: 'toggle', label: 'Toggle' },
-						{ id: 'show_all', label: 'Show All' },
-						{ id: 'hide_all', label: 'Hide All' },
-					],
-					default: 'show',
+					choices: supported.map(({ id, label }) => ({ id, label })),
+					default: supported[0].id,
 				},
 				{
 					id: 'overlayId',
@@ -48,20 +50,19 @@ export function getVisibilityActions(self: ModuleInstance): CompanionActionDefin
 				},
 			],
 			callback: async (event) => {
-				const action = String(event.options.action) as VisibilityAction
+				const action = String(event.options.action)
+				const command = (VISIBILITY_ACTIONS.find((a) => a.id === action) ?? VISIBILITY_ACTIONS[0]).command
 
 				if (isBulkVisibilityAction(action)) {
-					await self.sendAndRefresh({ command: VISIBILITY_ACTION_COMMANDS[action] })
+					await self.sendAndRefresh({ command }, null)
 					return
 				}
 
-				const payload: ApiPayload = {
-					command: VISIBILITY_ACTION_COMMANDS[action] ?? VISIBILITY_ACTION_COMMANDS.show,
-				}
+				const payload: ApiPayload = { command }
 				const overlayId = String(event.options.overlayId ?? '')
 				if (overlayId) payload.id = overlayId
 
-				await self.sendAndRefresh(payload)
+				await self.sendAndRefresh(payload, { kind: 'visibility', overlayId })
 			},
 		},
 	}

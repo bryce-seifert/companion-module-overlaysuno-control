@@ -28,6 +28,23 @@ export function isToggleField(field: OverlayModelField): boolean {
 	return TOGGLE_FIELD_TYPES.has(field.type)
 }
 
+/**
+ * The API stores whatever JSON type it is sent, so a numeric value typed into a text input is sent
+ * as a number unless the field is currently stored as text (as some apps' editors save it).
+ */
+export function matchStoredType(
+	value: string | number | boolean,
+	stored: JsonValue | undefined,
+	isNumericField: boolean,
+): string | number | boolean {
+	if (typeof value !== 'string' || value.trim() === '') return value
+	const n = Number(value)
+	if (!Number.isFinite(n)) return value
+	if (typeof stored === 'number') return n
+	if (stored === undefined && isNumericField) return n
+	return value
+}
+
 /** Escape a string so it can be embedded in a Companion expression single-quoted literal. */
 export function escExpr(s: string): string {
 	return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")

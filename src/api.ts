@@ -183,9 +183,22 @@ interface RequestOptions {
 	notFoundMessage?: string
 }
 
+/** Seconds until the burst window resets, from `x-singular-ratelimit-burst-calls: {"reset":<epoch s>,…}`. */
+function parseBurstReset(response: Response): number | undefined {
+	const header = response.headers.get('x-singular-ratelimit-burst-calls')
+	if (!header) return undefined
+	try {
+		const parsed: unknown = JSON.parse(header)
+		if (!isPlainObject(parsed) || typeof parsed.reset !== 'number') return undefined
+		return Math.max(1, Math.ceil(parsed.reset - Date.now() / 1000))
+	} catch {
+		return undefined
+	}
+}
+
 function parseRetryAfter(response: Response): number | undefined {
 	const value = response.headers.get('retry-after')
-	if (!value) return undefined
+	if (!value) return parseBurstReset(response)
 
 	const seconds = Number(value)
 	if (Number.isFinite(seconds) && seconds > 0) return seconds

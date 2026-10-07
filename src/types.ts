@@ -27,8 +27,11 @@ export const GLOBAL_OVERLAY_ID = 'global'
 /** Fallback reconnect delay when a connect-time 429 has no Retry-After header. */
 export const CONNECT_RETRY_SECONDS = 30
 
-/** Debounce window before refreshing /control after a mutating action. */
-export const ACTION_REFRESH_DEBOUNCE_MS = 250
+/**
+ * Debounce window before refreshing /control after a mutating action whose response can't be applied directly.
+ * /control can briefly lag behind a command, so don't read it back immediately.
+ */
+export const ACTION_REFRESH_DEBOUNCE_MS = 500
 
 /** HTTP statuses we branch on from the Overlays.uno API. */
 export const HttpStatus = {
@@ -84,3 +87,12 @@ export const STRUCTURED_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Me
 
 /** Subcomposition animation state that means "on air". */
 export const VISIBLE_SUBCOMPOSITION_STATE = 'In'
+
+/** Animation state /control reports for a subcomposition that is off air. */
+export const HIDDEN_SUBCOMPOSITION_STATE = 'Out1'
+
+/**
+ * Content flag some single-overlay apps (e.g. Spin the Wheel) use as their real on-air state;
+ * their subcompositions can all read off air while the overlay is shown.
+ */
+export const GLOBAL_VISIBILITY_FIELD = 'ShowOverlay'

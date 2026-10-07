@@ -33,17 +33,60 @@ import {
 	ACTION_REFRESH_DEBOUNCE_MS,
 	CONNECT_RETRY_SECONDS,
 	GLOBAL_OVERLAY_ID,
+	GLOBAL_VISIBILITY_FIELD,
+	HIDDEN_SUBCOMPOSITION_STATE,
+	VISIBLE_SUBCOMPOSITION_STATE,
 	type DropdownChoice,
 	type JsonObject,
+	type JsonValue,
 } from './types.js'
-import { errorMessage, maskApiToken } from './util.js'
+import { errorMessage, isPlainObject, maskApiToken } from './util.js'
 
 export type OverlayChoice = DropdownChoice
+
+/**
+ * State a command's response describes, so it can be applied without re-reading /control.
+ * Field commands answer with the composition's payload; visibility commands with the new on-air state.
+ */
+export type CommandTarget =
+	{ kind: 'content'; overlayId: string } | { kind: 'customization' } | { kind: 'visibility'; overlayId: string } | null
 
 /** The only non-app subcomposition, when there is exactly one — how single-overlay apps are targeted. */
 function soleOverlaySub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
 	const overlays = subs.filter((s) => !s.mainComposition)
 	return overlays.length === 1 ? overlays[0] : undefined
+}
+
+function globalVisibilityFlagSub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
+	return subs.find((s) => !s.mainComposition && typeof s.payload?.[GLOBAL_VISIBILITY_FIELD] === 'boolean')
+}
+
+/** On-air state of a single-overlay app, or undefined when it can't be told. */
+function globalVisibility(subs: ControlSubComposition[]): boolean | undefined {
+	const flagSub = globalVisibilityFlagSub(subs)
+	if (flagSub) return flagSub.payload?.[GLOBAL_VISIBILITY_FIELD] === true
+
+	const only = soleOverlaySub(subs)
+	return only ? isSubCompositionVisible(only) : undefined
+}
+
+/** Subcompositions with one overlay's visibility set, written where applyControlState() reads it back. */
+function withVisibility(subs: ControlSubComposition[], overlayId: string, visible: boolean): ControlSubComposition[] {
+	const state = visible ? VISIBLE_SUBCOMPOSITION_STATE : HIDDEN_SUBCOMPOSITION_STATE
+
+	if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) {
+		return subs.map((s) => (s.subCompositionId === overlayId ? { ...s, state } : s))
+	}
+
+	const flagSub = globalVisibilityFlagSub(subs)
+	if (flagSub) {
+		return subs.map((s) =>
+			s === flagSub ? { ...s, payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } } : s,
+		)
+	}
+
+	const only = soleOverlaySub(subs)
+	return subs.map((s) => (s === only ? { ...s, state } : s))
 }
 
 export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
@@ -387,9 +430,14 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 		// Single-overlay apps key their visibility under 'global'.
 		if (this.overlayList.length === 0) {
-			const only = soleOverlaySub(subs)
-			if (only) this.overlayVisibility.set(GLOBAL_OVERLAY_ID, isSubCompositionVisible(only))
+			const visible = globalVisibility(subs)
+			if (visible !== undefined) this.overlayVisibility.set(GLOBAL_OVERLAY_ID, visible)
 		}
+	}
+
+	/** Publish freshly applied state: re-register definitions if the app's shape moved, then values and feedbacks. */
+	private publishState(): void {
+		this.syncValuesAndFeedbacks(this.refreshDefinitionsIfChanged())
 	}
 
 	/**
@@ -423,9 +471,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		if (epoch !== this.connectionEpoch) return
 
 		this.applyControlState(subs)
-
-		const definitionsChanged = this.refreshDefinitionsIfChanged()
-		this.syncValuesAndFeedbacks(definitionsChanged)
+		this.publishState()
 	}
 
 	/**
@@ -585,16 +631,51 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	}
 
 	/**
-	 * Send a mutating command, then refresh state from /control so variables and
-	 * feedbacks update immediately.
+	 * Send a mutating command and update variables/feedbacks from its response when `target` says
+	 * what it describes; otherwise re-read /control shortly after.
 	 */
-	async sendAndRefresh(payload: ApiPayload): Promise<void> {
+	async sendAndRefresh(payload: ApiPayload, target: CommandTarget): Promise<void> {
+		const epoch = this.connectionEpoch
+		let result: JsonValue | undefined
 		try {
-			await sendCommand(this.secrets.apiToken, payload)
-			this.refreshAfterAction()
+			result = (await sendCommand(this.secrets.apiToken, payload)).payload
 		} catch (error) {
+			if (epoch !== this.connectionEpoch) return
 			this.log('error', `${payload.command} failed: ${error}`)
+			if (isRateLimitError(error)) this.onRateLimited(error)
+			return
 		}
+		if (epoch !== this.connectionEpoch) return
+
+		if (this.applyCommandResult(target, result)) {
+			this.publishState()
+		} else {
+			this.refreshAfterAction()
+		}
+	}
+
+	/** Fold a command's response into state. False when it can't be, and /control has to be re-read. */
+	private applyCommandResult(target: CommandTarget, result: JsonValue | undefined): boolean {
+		if (!target) return false
+
+		if (target.kind === 'visibility') {
+			if (typeof result !== 'boolean') return false
+			this.applyControlState(withVisibility(this.controlState, target.overlayId, result))
+			return true
+		}
+
+		if (!isPlainObject(result)) return false
+		const subId =
+			target.kind === 'content'
+				? this.resolveContentOverlayId(target.overlayId, this.controlState)
+				: this.controlState.find((s) => s.mainComposition)?.subCompositionId
+		if (!subId) return false
+
+		// Field commands return the whole payload; merging keeps a partial reply from dropping fields.
+		this.applyControlState(
+			this.controlState.map((s) => (s.subCompositionId === subId ? { ...s, payload: { ...s.payload, ...result } } : s)),
+		)
+		return true
 	}
 
 	/** Queue a post-action state refresh, debounced. */
@@ -628,7 +709,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			const subs = await this.fetchControlState(true)
 			if (epoch !== this.connectionEpoch) return
 			this.applyControlState(subs)
-			this.syncValuesAndFeedbacks(false)
+			this.publishState()
 			this.onPollSucceeded()
 		} catch (error) {
 			if (epoch !== this.connectionEpoch) return

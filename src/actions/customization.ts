@@ -4,7 +4,8 @@ import { parseJsonObject } from '../util.js'
 import { buildFieldActions } from './fields.js'
 
 export function getCustomizationActions(self: ModuleInstance): CompanionActionDefinitions {
-	const fields = self.customizationModel?.model ?? []
+	if (!self.customizationModel) return {}
+	const fields = self.customizationModel.model
 
 	return {
 		set_customization: {
@@ -24,7 +25,7 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 					self.log('error', `SetCustomization: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value })
+				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value }, null)
 			},
 			learn: async (event) => {
 				const values = await self.fetchLiveCustomization()
@@ -54,6 +55,8 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 				execute: 'ExecuteCustomizationField',
 			},
 			payloadFor: () => ({ command: '' }),
+			targetFor: () => ({ kind: 'customization' }),
+			cachedValues: () => self.customizationValues,
 			fetchValues: async () => self.fetchLiveCustomization(),
 		}),
 	}

@@ -6,6 +6,7 @@ import type {
 import type { ModuleInstance } from '../main.js'
 import { COLOR } from '../style.js'
 import { addDivider } from './layout.js'
+import { supportsVisibilityAction } from '../actions/visibility.js'
 import { ICON_SHOW_OVERLAY, ICON_HIDE_OVERLAY, ICON_TOGGLE_OVERLAY } from '../icons.js'
 
 const VISIBILITY_CATEGORY = 'Overlays - Visibility'
@@ -43,7 +44,12 @@ function visibilityFeedbacks(
 	]
 }
 
-function addVisibilityButton(presets: CompanionPresetDefinitions, spec: VisibilityPresetSpec): void {
+function addVisibilityButton(
+	self: ModuleInstance,
+	presets: CompanionPresetDefinitions,
+	spec: VisibilityPresetSpec,
+): void {
+	if (!supportsVisibilityAction(self, spec.action)) return
 	presets[spec.key] = {
 		type: 'button',
 		category: VISIBILITY_CATEGORY,
@@ -69,6 +75,7 @@ function addVisibilityButton(presets: CompanionPresetDefinitions, spec: Visibili
 }
 
 function addBulkVisibilityButton(
+	self: ModuleInstance,
 	presets: CompanionPresetDefinitions,
 	key: string,
 	action: 'show_all' | 'hide_all',
@@ -76,6 +83,7 @@ function addBulkVisibilityButton(
 	label: string,
 	icon: string,
 ): void {
+	if (!supportsVisibilityAction(self, action)) return
 	presets[key] = {
 		type: 'button',
 		category: VISIBILITY_CATEGORY,
@@ -95,8 +103,8 @@ function addBulkVisibilityButton(
 	}
 }
 
-function buildSingleOverlayVisibilityPresets(presets: CompanionPresetDefinitions): void {
-	addVisibilityButton(presets, {
+function buildSingleOverlayVisibilityPresets(self: ModuleInstance, presets: CompanionPresetDefinitions): void {
+	addVisibilityButton(self, presets, {
 		key: 'show_global_overlay',
 		action: 'show',
 		name: 'Show Overlay',
@@ -105,7 +113,7 @@ function buildSingleOverlayVisibilityPresets(presets: CompanionPresetDefinitions
 		icon: ICON_SHOW_OVERLAY,
 		feedbackStyle: { ...ACTIVE_COLORS },
 	})
-	addVisibilityButton(presets, {
+	addVisibilityButton(self, presets, {
 		key: 'hide_global_overlay',
 		action: 'hide',
 		name: 'Hide Overlay',
@@ -115,7 +123,7 @@ function buildSingleOverlayVisibilityPresets(presets: CompanionPresetDefinitions
 		feedbackStyle: { ...ACTIVE_COLORS, png64: ICON_HIDE_OVERLAY },
 		invertFeedback: true,
 	})
-	addVisibilityButton(presets, {
+	addVisibilityButton(self, presets, {
 		key: 'toggle_global_overlay',
 		action: 'toggle',
 		name: 'Toggle Overlay',
@@ -130,7 +138,7 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 	for (const overlay of self.overlayList) {
 		addDivider(presets, VISIBILITY_CATEGORY, `vis_header_${overlay.id}`, overlay.name)
 
-		addVisibilityButton(presets, {
+		addVisibilityButton(self, presets, {
 			key: `show_${overlay.id}`,
 			action: 'show',
 			name: `Show: ${overlay.name}`,
@@ -139,7 +147,7 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 			icon: ICON_SHOW_OVERLAY,
 			feedbackStyle: { ...ACTIVE_COLORS },
 		})
-		addVisibilityButton(presets, {
+		addVisibilityButton(self, presets, {
 			key: `hide_${overlay.id}`,
 			action: 'hide',
 			name: `Hide: ${overlay.name}`,
@@ -149,7 +157,7 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 			feedbackStyle: { ...ACTIVE_COLORS },
 			invertFeedback: true,
 		})
-		addVisibilityButton(presets, {
+		addVisibilityButton(self, presets, {
 			key: `toggle_${overlay.id}`,
 			action: 'toggle',
 			name: `Toggle: ${overlay.name}`,
@@ -161,8 +169,11 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 		})
 	}
 
-	addDivider(presets, VISIBILITY_CATEGORY, 'vis_header_all', 'All Overlays')
+	if (supportsVisibilityAction(self, 'show_all') || supportsVisibilityAction(self, 'hide_all')) {
+		addDivider(presets, VISIBILITY_CATEGORY, 'vis_header_all', 'All Overlays')
+	}
 	addBulkVisibilityButton(
+		self,
 		presets,
 		'show_all_overlays',
 		'show_all',
@@ -171,6 +182,7 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 		ICON_SHOW_OVERLAY,
 	)
 	addBulkVisibilityButton(
+		self,
 		presets,
 		'hide_all_overlays',
 		'hide_all',
@@ -182,7 +194,7 @@ function buildMultiOverlayVisibilityPresets(self: ModuleInstance, presets: Compa
 
 export function buildVisibilityPresets(self: ModuleInstance, presets: CompanionPresetDefinitions): void {
 	if (self.overlayList.length === 0) {
-		buildSingleOverlayVisibilityPresets(presets)
+		buildSingleOverlayVisibilityPresets(self, presets)
 		return
 	}
 

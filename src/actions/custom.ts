@@ -67,7 +67,7 @@ export function getCustomActions(self: ModuleInstance): CompanionActionDefinitio
 				const fieldId = String(event.options.fieldId ?? '')
 				if (fieldId) payload.fieldId = fieldId
 
-				await self.sendAndRefresh(payload)
+				await self.sendAndRefresh(payload, null)
 			},
 		},
 		poll_data: {

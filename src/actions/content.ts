@@ -5,6 +5,9 @@ import { buildFieldActions } from './fields.js'
 import { overlayChoices } from './shared.js'
 
 export function getContentActions(self: ModuleInstance): CompanionActionDefinitions {
+	// Bespoke apps (no overlay models) reject the generic content commands.
+	if (self.overlayModels.length === 0) return {}
+
 	const choices = overlayChoices(self)
 	const contentFields = self.overlayModels.flatMap((m) => m.model)
 	const overlayOption = {
@@ -35,11 +38,10 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 					self.log('error', `SetOverlayContent: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({
-					command: 'SetOverlayContent',
-					id: String(event.options.overlayId),
-					content: parsed.value,
-				})
+				await self.sendAndRefresh(
+					{ command: 'SetOverlayContent', id: String(event.options.overlayId), content: parsed.value },
+					null,
+				)
 			},
 			learn: async (event) => {
 				const content = await self.fetchLiveContent(String(event.options.overlayId))
@@ -68,6 +70,8 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 				execute: 'ExecuteOverlayContentField',
 			},
 			payloadFor: (options) => ({ command: '', id: String(options.overlayId) }),
+			targetFor: (options) => ({ kind: 'content', overlayId: String(options.overlayId) }),
+			cachedValues: (options) => self.overlayContent.get(String(options.overlayId)),
 			fetchValues: async (options) => self.fetchLiveContent(String(options.overlayId)),
 		}),
 	}
