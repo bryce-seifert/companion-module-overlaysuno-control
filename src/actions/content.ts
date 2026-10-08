@@ -38,10 +38,11 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 					self.log('error', `SetOverlayContent: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh(
-					{ command: 'SetOverlayContent', id: String(event.options.overlayId), content: parsed.value },
-					null,
-				)
+				await self.sendAndRefresh({
+					command: 'SetOverlayContent',
+					id: String(event.options.overlayId),
+					content: parsed.value,
+				})
 			},
 			learn: async (event) => {
 				const content = await self.fetchLiveContent(String(event.options.overlayId))
@@ -70,8 +71,6 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 				execute: 'ExecuteOverlayContentField',
 			},
 			payloadFor: (options) => ({ command: '', id: String(options.overlayId) }),
-			targetFor: (options) => ({ kind: 'content', overlayId: String(options.overlayId) }),
-			cachedValues: (options) => self.overlayContent.get(String(options.overlayId)),
 			fetchValues: async (options) => self.fetchLiveContent(String(options.overlayId)),
 		}),
 	}

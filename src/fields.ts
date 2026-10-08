@@ -82,27 +82,19 @@ export function fieldChoiceLabel(field: OverlayModelField): string {
 	return fieldIdLabel(field.id) || field.title
 }
 
-/**
- * Build a deduped, labeled field selector from the given fields, optionally
- * restricted by `predicate`. Falls back to a placeholder when nothing matches.
- */
-export function buildFieldChoices(
-	fields: OverlayModelField[],
-	predicate?: (field: OverlayModelField) => boolean,
-	emptyLabel = 'No fields loaded',
-): DropdownChoice[] {
+/** Build a deduped, labeled field selector. Falls back to a placeholder when there are no fields. */
+export function buildFieldChoices(fields: OverlayModelField[]): DropdownChoice[] {
 	const choices: DropdownChoice[] = []
 	const seen = new Set<string>()
 
 	for (const field of fields) {
 		if (seen.has(field.id)) continue
 		seen.add(field.id)
-		if (predicate && !predicate(field)) continue
 		choices.push({ id: field.id, label: fieldChoiceLabel(field) })
 	}
 
 	choices.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-	if (choices.length === 0) choices.push({ id: '', label: emptyLabel })
+	if (choices.length === 0) choices.push({ id: '', label: 'No fields loaded' })
 	return choices
 }
 

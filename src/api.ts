@@ -1,5 +1,5 @@
 import { FieldType, HttpStatus, VISIBLE_SUBCOMPOSITION_STATE, type JsonObject, type JsonValue } from './types.js'
-import { isPlainObject } from './util.js'
+import { errorMessage, isPlainObject, parseJsonObject } from './util.js'
 
 const BASE_URL = 'https://app.overlays.uno/apiv2/controlapps'
 
@@ -154,10 +154,18 @@ export function isRateLimitError(error: unknown): error is ApiError {
 	return error instanceof ApiError && error.statusCode === HttpStatus.TooManyRequests
 }
 
-/** Worth retrying: a network failure (fetch throws a non-ApiError) or a server-side 5xx. */
+/** The request never got a response (DNS, connection reset, offline…). */
+export class NetworkError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'NetworkError'
+	}
+}
+
+/** Worth retrying: a network failure or a server-side 5xx. */
 export function isTransientError(error: unknown): boolean {
-	if (!(error instanceof ApiError)) return true
-	return error.statusCode >= HttpStatus.InternalServerError
+	if (error instanceof NetworkError) return true
+	return error instanceof ApiError && error.statusCode >= HttpStatus.InternalServerError
 }
 
 /** Permanent for this token: the app doesn't implement this command. */
@@ -187,13 +195,9 @@ interface RequestOptions {
 function parseBurstReset(response: Response): number | undefined {
 	const header = response.headers.get('x-singular-ratelimit-burst-calls')
 	if (!header) return undefined
-	try {
-		const parsed: unknown = JSON.parse(header)
-		if (!isPlainObject(parsed) || typeof parsed.reset !== 'number') return undefined
-		return Math.max(1, Math.ceil(parsed.reset - Date.now() / 1000))
-	} catch {
-		return undefined
-	}
+	const parsed = parseJsonObject(header)
+	if (!parsed.ok || typeof parsed.value.reset !== 'number') return undefined
+	return Math.max(1, Math.ceil(parsed.value.reset - Date.now() / 1000))
 }
 
 function parseRetryAfter(response: Response): number | undefined {
@@ -217,7 +221,12 @@ async function readErrorBody(response: Response): Promise<string> {
 }
 
 async function request(url: string, init: RequestInit, options: RequestOptions): Promise<Response> {
-	const response = await fetch(url, init)
+	let response: Response
+	try {
+		response = await fetch(url, init)
+	} catch (error) {
+		throw new NetworkError(`${options.errorPrefix}: ${errorMessage(error)}`)
+	}
 	if (response.ok) return response
 
 	const errorBody = await readErrorBody(response)
@@ -268,11 +277,15 @@ export async function getOverlays(apiToken: string): Promise<OverlayInfo[]> {
 	return asArrayPayload<OverlayInfo>(res.payload)
 }
 
-/** Apps differ on casing for editor types (e.g. "timeControl"), so lowercase them once on the way in. */
+/** Apps differ on casing for editor/argument types (e.g. "timeControl", "JSON"), so lowercase them on the way in. */
+function normalizeType(type: string | undefined): string {
+	return String(type ?? '').toLowerCase()
+}
+
 function normalizeModel(model: OverlayModel): OverlayModel {
 	return {
 		...model,
-		model: (model.model ?? []).map((field) => ({ ...field, type: String(field.type ?? '').toLowerCase() })),
+		model: (model.model ?? []).map((field) => ({ ...field, type: normalizeType(field.type) })),
 	}
 }
 
@@ -439,7 +452,12 @@ export async function getApiSchema(apiToken: string): Promise<ApiCommandEntry[]>
 		},
 	)
 
-	return (await response.json()) as ApiCommandEntry[]
+	const schema = (await response.json()) as ApiCommandEntry[]
+	return schema.map((entry) =>
+		isCommandEntry(entry) && entry.arguments
+			? { ...entry, arguments: entry.arguments.map((arg) => ({ ...arg, type: normalizeType(arg.type) })) }
+			: entry,
+	)
 }
 
 /** Extract the set of command names from an API schema. */

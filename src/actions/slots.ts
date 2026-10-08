@@ -1,7 +1,7 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
-import type { DropdownChoice } from '../types.js'
+import { modelChoices } from './shared.js'
 
 const SLOT_MODE_COMMANDS = {
 	first: 'TakeOverlayFirstSlot',
@@ -15,10 +15,9 @@ const SLOT_MODE_COMMANDS = {
 type SlotMode = keyof typeof SLOT_MODE_COMMANDS
 
 export function getSlotActions(self: ModuleInstance): CompanionActionDefinitions {
-	const choices: DropdownChoice[] = self.overlayModels
-		.filter((model) => model.hasSlots)
-		.map((model) => ({ id: model.id, label: model.name }))
-	if (choices.length === 0) return {}
+	const slottedModels = self.overlayModels.filter((model) => model.hasSlots)
+	if (slottedModels.length === 0) return {}
+	const choices = modelChoices(slottedModels)
 
 	return {
 		take_overlay_slot: {
@@ -73,7 +72,7 @@ export function getSlotActions(self: ModuleInstance): CompanionActionDefinitions
 				if (mode === 'name') payload.value = String(event.options.slotName)
 				if (mode === 'number') payload.value = String(event.options.slotNumber)
 
-				await self.sendAndRefresh(payload, null)
+				await self.sendAndRefresh(payload)
 			},
 		},
 	}

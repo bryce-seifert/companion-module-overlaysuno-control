@@ -1,3 +1,4 @@
+import { modelChoices } from './actions/shared.js'
 import { COLOR } from './style.js'
 import type { ModuleInstance } from './main.js'
 import { hasPayload } from './api.js'
@@ -55,10 +56,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 	const contentModels = inferredContentModels(self)
 	const contentFields = contentModels.flatMap((m) => m.model).filter(isContentField)
 	const contentInputs = buildFieldValueInputs(contentFields)
-	const contentOverlays: DropdownChoice[] =
-		contentModels.length > 0
-			? contentModels.map((m) => ({ id: m.id, label: m.name }))
-			: [{ id: '', label: 'No overlays loaded' }]
+	const contentOverlays = modelChoices(contentModels)
 	const customizationFields = (self.customizationModel?.model ?? []).filter(isContentField)
 	const customizationInputs = buildFieldValueInputs(customizationFields)
 

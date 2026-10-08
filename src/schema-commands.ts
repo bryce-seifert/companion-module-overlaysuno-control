@@ -93,7 +93,7 @@ function isBooleanArgType(type: string): boolean {
 }
 
 function isJsonArgType(type: string): boolean {
-	return type === FieldType.Json || type === 'JSON'
+	return type === FieldType.Json
 }
 
 /** min/max are visual hints only; fall back to the widest safe range, negatives included. */

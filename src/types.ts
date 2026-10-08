@@ -58,7 +58,7 @@ export const FieldType = {
 	TimeControl: 'timecontrol',
 	Json: 'json',
 	Boolean: 'boolean',
-	OverlaySelection: 'overlaySelection',
+	OverlaySelection: 'overlayselection',
 } as const
 
 export type FieldTypeName = (typeof FieldType)[keyof typeof FieldType]

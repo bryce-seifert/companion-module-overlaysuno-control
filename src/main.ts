@@ -48,8 +48,30 @@ export type OverlayChoice = DropdownChoice
  * State a command's response describes, so it can be applied without re-reading /control.
  * Field commands answer with the composition's payload; visibility commands with the new on-air state.
  */
-export type CommandTarget =
+type CommandTarget =
 	{ kind: 'content'; overlayId: string } | { kind: 'customization' } | { kind: 'visibility'; overlayId: string } | null
+
+const VISIBILITY_COMMANDS = new Set(['ShowOverlay', 'HideOverlay', 'ToggleOverlay'])
+const FIELD_COMMAND_VERBS = ['Set', 'Increment', 'Decrement', 'Toggle', 'Execute']
+const CONTENT_FIELD_COMMANDS = new Set(FIELD_COMMAND_VERBS.map((verb) => `${verb}OverlayContentField`))
+const CUSTOMIZATION_FIELD_COMMANDS = new Set(FIELD_COMMAND_VERBS.map((verb) => `${verb}CustomizationField`))
+
+function commandTarget(payload: ApiPayload): CommandTarget {
+	const overlayId = payload.id ?? ''
+	if (VISIBILITY_COMMANDS.has(payload.command)) return { kind: 'visibility', overlayId }
+	if (CONTENT_FIELD_COMMANDS.has(payload.command)) return { kind: 'content', overlayId }
+	if (CUSTOMIZATION_FIELD_COMMANDS.has(payload.command)) return { kind: 'customization' }
+	return null
+}
+
+/** Copy of `subs` with each matching subcomposition updated by `patch`. */
+function patchSubs(
+	subs: ControlSubComposition[],
+	matches: (sub: ControlSubComposition) => boolean,
+	patch: (sub: ControlSubComposition) => Partial<ControlSubComposition>,
+): ControlSubComposition[] {
+	return subs.map((s) => (matches(s) ? { ...s, ...patch(s) } : s))
+}
 
 /** The only non-app subcomposition, when there is exactly one — how single-overlay apps are targeted. */
 function soleOverlaySub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
@@ -75,18 +97,28 @@ function withVisibility(subs: ControlSubComposition[], overlayId: string, visibl
 	const state = visible ? VISIBLE_SUBCOMPOSITION_STATE : HIDDEN_SUBCOMPOSITION_STATE
 
 	if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) {
-		return subs.map((s) => (s.subCompositionId === overlayId ? { ...s, state } : s))
+		return patchSubs(
+			subs,
+			(s) => s.subCompositionId === overlayId,
+			() => ({ state }),
+		)
 	}
 
 	const flagSub = globalVisibilityFlagSub(subs)
 	if (flagSub) {
-		return subs.map((s) =>
-			s === flagSub ? { ...s, payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } } : s,
+		return patchSubs(
+			subs,
+			(s) => s === flagSub,
+			(s) => ({ payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } }),
 		)
 	}
 
 	const only = soleOverlaySub(subs)
-	return subs.map((s) => (s === only ? { ...s, state } : s))
+	return patchSubs(
+		subs,
+		(s) => s === only,
+		() => ({ state }),
+	)
 }
 
 export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
@@ -593,14 +625,19 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	}
 
 	private cachedContentPayload(overlayId: string): JsonObject | undefined {
-		if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) {
-			return this.overlayContent.get(overlayId)
-		}
-		if (this.overlayContent.size === 1) {
-			return [...this.overlayContent.values()][0]
-		}
-		const only = soleOverlaySub(this.controlState)
-		return only ? this.overlayContent.get(only.subCompositionId) : undefined
+		const id = this.resolveContentOverlayId(overlayId, this.controlState)
+		if (id) return this.overlayContent.get(id)
+		if (this.overlayContent.size === 1) return [...this.overlayContent.values()][0]
+		return undefined
+	}
+
+	/** Last polled value of the field a content/customization field command targets. */
+	storedFieldValue(payload: ApiPayload): JsonValue | undefined {
+		if (payload.fieldId === undefined) return undefined
+		const target = commandTarget(payload)
+		if (target?.kind === 'content') return this.cachedContentPayload(target.overlayId)?.[payload.fieldId]
+		if (target?.kind === 'customization') return this.customizationValues[payload.fieldId]
+		return undefined
 	}
 
 	/** Live content payload for one overlay — used by action Learn callbacks. */
@@ -631,10 +668,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	}
 
 	/**
-	 * Send a mutating command and update variables/feedbacks from its response when `target` says
-	 * what it describes; otherwise re-read /control shortly after.
+	 * Send a mutating command and update variables/feedbacks from its response when the command's
+	 * response describes known state; otherwise re-read /control shortly after.
 	 */
-	async sendAndRefresh(payload: ApiPayload, target: CommandTarget): Promise<void> {
+	async sendAndRefresh(payload: ApiPayload): Promise<void> {
 		const epoch = this.connectionEpoch
 		let result: JsonValue | undefined
 		try {
@@ -647,7 +684,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		}
 		if (epoch !== this.connectionEpoch) return
 
-		if (this.applyCommandResult(target, result)) {
+		if (this.applyCommandResult(commandTarget(payload), result)) {
 			this.publishState()
 		} else {
 			this.refreshAfterAction()
@@ -671,9 +708,18 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 				: this.controlState.find((s) => s.mainComposition)?.subCompositionId
 		if (!subId) return false
 
-		// Field commands return the whole payload; merging keeps a partial reply from dropping fields.
+		// Field commands return the whole payload. Only keys /control already reports are merged, so a
+		// reply can't change the app's shape (and force a definitions rebuild) between polls.
 		this.applyControlState(
-			this.controlState.map((s) => (s.subCompositionId === subId ? { ...s, payload: { ...s.payload, ...result } } : s)),
+			patchSubs(
+				this.controlState,
+				(s) => s.subCompositionId === subId,
+				(s) => {
+					const payload = s.payload ?? {}
+					const known = Object.entries(result).filter(([key]) => key in payload)
+					return { payload: { ...payload, ...Object.fromEntries(known) } }
+				},
+			),
 		)
 		return true
 	}

@@ -25,7 +25,7 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 					self.log('error', `SetCustomization: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value }, null)
+				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value })
 			},
 			learn: async (event) => {
 				const values = await self.fetchLiveCustomization()
@@ -55,8 +55,6 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 				execute: 'ExecuteCustomizationField',
 			},
 			payloadFor: () => ({ command: '' }),
-			targetFor: () => ({ kind: 'customization' }),
-			cachedValues: () => self.customizationValues,
 			fetchValues: async () => self.fetchLiveCustomization(),
 		}),
 	}

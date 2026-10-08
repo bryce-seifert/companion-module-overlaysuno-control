@@ -38,7 +38,7 @@ export function normalizeColor(value: JsonValue | unknown, fieldType?: string): 
 	if (isRgbObject(value)) {
 		return `#${hexByte(value.r)}${hexByte(value.g)}${hexByte(value.b)}`
 	}
-	if (fieldType?.toLowerCase() === FieldType.Color && typeof value === 'string' && HEX6.test(value)) {
+	if (fieldType === FieldType.Color && typeof value === 'string' && HEX6.test(value)) {
 		return `#${value.replace('#', '').toLowerCase()}`
 	}
 	return value

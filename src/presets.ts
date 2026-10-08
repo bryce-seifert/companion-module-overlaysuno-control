@@ -12,9 +12,7 @@ export function UpdatePresets(self: ModuleInstance): void {
 
 	buildSchemaPresets(self, presets)
 
-	if (self.hasCommand('ShowOverlay') || self.hasCommand('HideOverlay') || self.hasCommand('ToggleOverlay')) {
-		buildVisibilityPresets(self, presets)
-	}
+	buildVisibilityPresets(self, presets)
 
 	for (const model of self.overlayModels) {
 		buildContentFieldPresets(model, presets)

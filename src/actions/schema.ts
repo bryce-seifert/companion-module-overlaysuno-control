@@ -24,7 +24,7 @@ export function getSchemaActions(self: ModuleInstance): CompanionActionDefinitio
 					self.log('error', `${cmd.command}: invalid option value - ${errorMessage(error)}`)
 					return
 				}
-				await self.sendAndRefresh(payload, null)
+				await self.sendAndRefresh(payload)
 			},
 		}
 	}
