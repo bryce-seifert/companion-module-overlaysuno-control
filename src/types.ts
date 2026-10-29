@@ -59,6 +59,8 @@ export const FieldType = {
 	Json: 'json',
 	Boolean: 'boolean',
 	OverlaySelection: 'overlayselection',
+	/** Read-only text shown in the control app; never written. */
+	InfoText: 'infotext',
 } as const
 
 export type FieldTypeName = (typeof FieldType)[keyof typeof FieldType]
@@ -90,6 +92,9 @@ export const VISIBLE_SUBCOMPOSITION_STATE = 'In'
 
 /** Animation state /control reports for a subcomposition that is off air. */
 export const HIDDEN_SUBCOMPOSITION_STATE = 'Out1'
+
+/** State to PATCH for "animate out": the default out animation (/control then reports it as 'Out1'). */
+export const ANIMATE_OUT_STATE = 'Out'
 
 /**
  * Content flag some single-overlay apps (e.g. Spin the Wheel) use as their real on-air state;

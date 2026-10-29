@@ -81,6 +81,31 @@ export interface ControlSubComposition {
 	payload?: JsonObject
 }
 
+/** Graphics in the same logic layer share a screen position: bringing one In takes the others Out. */
+export interface LogicLayer {
+	name: string
+	delay?: string
+	time?: string
+	tag?: string
+}
+
+/** One node of the app's composition tree, from GET /model. */
+export interface ControlModelNode {
+	id: string
+	name: string
+	state: string
+	model: OverlayModelField[]
+	logicLayer: LogicLayer | null
+	subcompositions: ControlModelNode[]
+}
+
+/** One entry of a PATCH /control body: animate a subcomposition and/or update its fields. */
+export interface ControlPatch {
+	subCompositionId: string
+	state?: string
+	payload?: JsonObject
+}
+
 /** Whether a subcomposition is currently on air. */
 export function isSubCompositionVisible(sub: ControlSubComposition): boolean {
 	return sub.state === VISIBLE_SUBCOMPOSITION_STATE
@@ -282,10 +307,20 @@ function normalizeType(type: string | undefined): string {
 	return String(type ?? '').toLowerCase()
 }
 
+function normalizeFields(fields: OverlayModelField[] | undefined): OverlayModelField[] {
+	return (fields ?? []).map((field) => ({ ...field, type: normalizeType(field.type) }))
+}
+
 function normalizeModel(model: OverlayModel): OverlayModel {
+	return { ...model, model: normalizeFields(model.model) }
+}
+
+function normalizeModelNode(node: ControlModelNode): ControlModelNode {
 	return {
-		...model,
-		model: (model.model ?? []).map((field) => ({ ...field, type: normalizeType(field.type) })),
+		...node,
+		model: normalizeFields(node.model),
+		logicLayer: node.logicLayer ?? null,
+		subcompositions: (node.subcompositions ?? []).map(normalizeModelNode),
 	}
 }
 
@@ -371,6 +406,46 @@ export async function getControlState(apiToken: string): Promise<ControlSubCompo
 
 	const json: unknown = await response.json()
 	return Array.isArray(json) ? (json as ControlSubComposition[]) : []
+}
+
+/** Fetch the app's composition tree, including each subcomposition's logic layer. */
+export async function getControlModel(apiToken: string): Promise<ControlModelNode[]> {
+	const url = `${BASE_URL}/${apiToken}/model`
+
+	const response = await request(
+		url,
+		{ method: 'GET', redirect: 'follow' },
+		{
+			rateLimitTarget: '/model',
+			errorPrefix: 'Failed to fetch control model',
+		},
+	)
+
+	const json: unknown = await response.json()
+	return Array.isArray(json) ? (json as ControlModelNode[]).map(normalizeModelNode) : []
+}
+
+/**
+ * Animate subcompositions and/or set their fields directly on the datastore.
+ * Works on bespoke apps whose /api rejects the generic commands. The reply carries no state.
+ */
+export async function patchControl(apiToken: string, patches: ControlPatch[]): Promise<void> {
+	const url = `${BASE_URL}/${apiToken}/control`
+
+	await request(
+		url,
+		{
+			method: 'PATCH',
+			headers: {
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify(patches),
+		},
+		{
+			rateLimitTarget: '/control',
+			errorPrefix: 'Control update failed',
+		},
+	)
 }
 
 /**

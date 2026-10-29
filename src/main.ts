@@ -20,9 +20,12 @@ import {
 	getOverlayModels,
 	getCustomizationModel,
 	getControlState,
+	getControlModel,
 	isSubCompositionVisible,
+	patchControl,
 	sendCommand,
 	type ApiPayload,
+	type ControlPatch,
 	type AppInfo,
 	type ApiCommandEntry,
 	type OverlayInfo,
@@ -33,14 +36,14 @@ import {
 	ACTION_REFRESH_DEBOUNCE_MS,
 	CONNECT_RETRY_SECONDS,
 	GLOBAL_OVERLAY_ID,
-	GLOBAL_VISIBILITY_FIELD,
-	HIDDEN_SUBCOMPOSITION_STATE,
 	VISIBLE_SUBCOMPOSITION_STATE,
 	type DropdownChoice,
 	type JsonObject,
 	type JsonValue,
 } from './types.js'
 import { errorMessage, isPlainObject, maskApiToken } from './util.js'
+import { controlSubModels, flattenControlModel, logicLayerMap, type ControlSub } from './inferred-model.js'
+import { globalVisibility, mergeKnownFields, patchSubs, soleOverlaySub, withVisibility } from './control-state.js'
 
 export type OverlayChoice = DropdownChoice
 
@@ -62,63 +65,6 @@ function commandTarget(payload: ApiPayload): CommandTarget {
 	if (CONTENT_FIELD_COMMANDS.has(payload.command)) return { kind: 'content', overlayId }
 	if (CUSTOMIZATION_FIELD_COMMANDS.has(payload.command)) return { kind: 'customization' }
 	return null
-}
-
-/** Copy of `subs` with each matching subcomposition updated by `patch`. */
-function patchSubs(
-	subs: ControlSubComposition[],
-	matches: (sub: ControlSubComposition) => boolean,
-	patch: (sub: ControlSubComposition) => Partial<ControlSubComposition>,
-): ControlSubComposition[] {
-	return subs.map((s) => (matches(s) ? { ...s, ...patch(s) } : s))
-}
-
-/** The only non-app subcomposition, when there is exactly one — how single-overlay apps are targeted. */
-function soleOverlaySub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
-	const overlays = subs.filter((s) => !s.mainComposition)
-	return overlays.length === 1 ? overlays[0] : undefined
-}
-
-function globalVisibilityFlagSub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
-	return subs.find((s) => !s.mainComposition && typeof s.payload?.[GLOBAL_VISIBILITY_FIELD] === 'boolean')
-}
-
-/** On-air state of a single-overlay app, or undefined when it can't be told. */
-function globalVisibility(subs: ControlSubComposition[]): boolean | undefined {
-	const flagSub = globalVisibilityFlagSub(subs)
-	if (flagSub) return flagSub.payload?.[GLOBAL_VISIBILITY_FIELD] === true
-
-	const only = soleOverlaySub(subs)
-	return only ? isSubCompositionVisible(only) : undefined
-}
-
-/** Subcompositions with one overlay's visibility set, written where applyControlState() reads it back. */
-function withVisibility(subs: ControlSubComposition[], overlayId: string, visible: boolean): ControlSubComposition[] {
-	const state = visible ? VISIBLE_SUBCOMPOSITION_STATE : HIDDEN_SUBCOMPOSITION_STATE
-
-	if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) {
-		return patchSubs(
-			subs,
-			(s) => s.subCompositionId === overlayId,
-			() => ({ state }),
-		)
-	}
-
-	const flagSub = globalVisibilityFlagSub(subs)
-	if (flagSub) {
-		return patchSubs(
-			subs,
-			(s) => s === flagSub,
-			(s) => ({ payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } }),
-		)
-	}
-
-	const only = soleOverlaySub(subs)
-	return patchSubs(
-		subs,
-		(s) => s === only,
-		() => ({ state }),
-	)
 }
 
 export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
@@ -143,6 +89,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	customizationValues: JsonObject = {}
 	/** Live datastore from GET /control — source for visibility, content, and customization. */
 	controlState: ControlSubComposition[] = []
+	/** Subcompositions from GET /model, which carries field types and logic layers even for bespoke apps. */
+	controlSubs: ControlSub[] = []
+	/** Subcomposition id → logic layer key, derived from controlSubs. */
+	private logicLayers: Map<string, string> = new Map()
 
 	/** Overlay dropdown choices, derived from overlayList. */
 	get overlayChoices(): OverlayChoice[] {
@@ -244,6 +194,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		this.overlayContent.clear()
 		this.customizationValues = {}
 		this.controlState = []
+		this.controlSubs = []
+		this.logicLayers.clear()
 
 		// Force a full re-register and re-push on the next poll.
 		this.lastVariableValues = {}
@@ -429,7 +381,23 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 				this.customizationModel = model
 			},
 		)
+		await this.fetchControlModel(epoch)
 		await this.resolveSelectionSources(epoch)
+	}
+
+	/** The composition tree is a nice-to-have: without it the module still connects, just with fewer controls. */
+	private async fetchControlModel(epoch: number): Promise<void> {
+		try {
+			const model = await getControlModel(this.secrets.apiToken)
+			if (epoch !== this.connectionEpoch) return
+			this.controlSubs = flattenControlModel(model)
+			this.logicLayers = logicLayerMap(this.controlSubs)
+		} catch (error) {
+			if (epoch !== this.connectionEpoch) return
+			// Fail the connect so it's retried, like the Get* structure fetches.
+			if (isRateLimitError(error) || isTransientError(error)) throw error
+			this.log('debug', `Control model unavailable: ${errorMessage(error)}`)
+		}
 	}
 
 	/**
@@ -437,7 +405,11 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	 * ("id1"/"Title 1"); swap in the app's real labels before definitions are built.
 	 */
 	private async resolveSelectionSources(epoch: number): Promise<void> {
-		const models = [...this.overlayModels, ...(this.customizationModel ? [this.customizationModel] : [])]
+		const models = [
+			...this.overlayModels,
+			...(this.customizationModel ? [this.customizationModel] : []),
+			...controlSubModels(this),
+		]
 		if (models.length === 0) return
 
 		const sources = await fetchSelectionSources(models, (message) => this.log('warn', message))
@@ -542,6 +514,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			overlays: this.overlayList.map((o) => [o.id, o.name]),
 			models: this.overlayModels.map((m) => [m.id, m.name, m.hasSlots, m.model.map((f) => f.id)]),
 			customization: this.customizationModel?.model.map((f) => f.id) ?? null,
+			controlSubs: this.controlSubs.map((s) => [s.id, s.name, s.layerKey, s.fields.map((f) => f.id)]),
 			// Bespoke apps have no models — variables are defined by datastore keys.
 			control: this.controlState.map((s) => [
 				s.subCompositionId,
@@ -667,24 +640,59 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		return this.customizationValues
 	}
 
+	/** Whether a subcomposition is on air, as last polled or optimistically set. */
+	isOverlayVisible(overlayId: string): boolean {
+		return this.overlayVisibility.get(overlayId) === true
+	}
+
+	/** Run a mutating request, logging failures. Null when it failed or the connection moved on. */
+	private async trySend<T>(label: string, send: () => Promise<T>): Promise<{ result: T } | null> {
+		const epoch = this.connectionEpoch
+		try {
+			const result = await send()
+			return epoch === this.connectionEpoch ? { result } : null
+		} catch (error) {
+			if (epoch !== this.connectionEpoch) return null
+			this.log('error', `${label} failed: ${error}`)
+			if (isRateLimitError(error)) this.onRateLimited(error)
+			return null
+		}
+	}
+
+	/**
+	 * Animate a subcomposition and/or set its fields via PATCH /control, then apply the change optimistically.
+	 * The reply carries no state, and re-reading /control straight away can return the old state.
+	 */
+	async sendControlPatch(patch: ControlPatch): Promise<void> {
+		const sent = await this.trySend('Control update', async () => patchControl(this.secrets.apiToken, [patch]))
+		if (!sent) return
+
+		let subs = this.controlState
+		if (patch.state !== undefined) {
+			const visible = patch.state === VISIBLE_SUBCOMPOSITION_STATE
+			subs = withVisibility(subs, patch.subCompositionId, visible, this.logicLayers)
+		}
+		const fields = patch.payload
+		if (fields) {
+			subs = patchSubs(
+				subs,
+				(s) => s.subCompositionId === patch.subCompositionId,
+				(s) => mergeKnownFields(s, fields),
+			)
+		}
+		this.applyControlState(subs)
+		this.publishState()
+	}
+
 	/**
 	 * Send a mutating command and update variables/feedbacks from its response when the command's
 	 * response describes known state; otherwise re-read /control shortly after.
 	 */
 	async sendAndRefresh(payload: ApiPayload): Promise<void> {
-		const epoch = this.connectionEpoch
-		let result: JsonValue | undefined
-		try {
-			result = (await sendCommand(this.secrets.apiToken, payload)).payload
-		} catch (error) {
-			if (epoch !== this.connectionEpoch) return
-			this.log('error', `${payload.command} failed: ${error}`)
-			if (isRateLimitError(error)) this.onRateLimited(error)
-			return
-		}
-		if (epoch !== this.connectionEpoch) return
+		const sent = await this.trySend(payload.command, async () => sendCommand(this.secrets.apiToken, payload))
+		if (!sent) return
 
-		if (this.applyCommandResult(commandTarget(payload), result)) {
+		if (this.applyCommandResult(commandTarget(payload), sent.result.payload)) {
 			this.publishState()
 		} else {
 			this.refreshAfterAction()
@@ -697,7 +705,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 		if (target.kind === 'visibility') {
 			if (typeof result !== 'boolean') return false
-			this.applyControlState(withVisibility(this.controlState, target.overlayId, result))
+			this.applyControlState(withVisibility(this.controlState, target.overlayId, result, this.logicLayers))
 			return true
 		}
 
@@ -708,17 +716,12 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 				: this.controlState.find((s) => s.mainComposition)?.subCompositionId
 		if (!subId) return false
 
-		// Field commands return the whole payload. Only keys /control already reports are merged, so a
-		// reply can't change the app's shape (and force a definitions rebuild) between polls.
+		// Field commands return the whole payload.
 		this.applyControlState(
 			patchSubs(
 				this.controlState,
 				(s) => s.subCompositionId === subId,
-				(s) => {
-					const payload = s.payload ?? {}
-					const known = Object.entries(result).filter(([key]) => key in payload)
-					return { payload: { ...payload, ...Object.fromEntries(known) } }
-				},
+				(s) => mergeKnownFields(s, result),
 			),
 		)
 		return true

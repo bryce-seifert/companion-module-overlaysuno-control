@@ -1,9 +1,8 @@
 import { modelChoices } from './actions/shared.js'
 import { COLOR } from './style.js'
 import type { ModuleInstance } from './main.js'
-import { hasPayload } from './api.js'
 import { buildFieldValueInputs, isContentField } from './fields.js'
-import { inferredContentModels } from './inferred-model.js'
+import { controlSubChoices, inferredContentModels } from './inferred-model.js'
 import { GLOBAL_OVERLAY_ID, type DropdownChoice, type JsonValue } from './types.js'
 import { normalizeColor } from './variables.js'
 
@@ -41,10 +40,7 @@ function contentMatches(live: JsonValue | undefined, expected: string | number |
 function visibilityChoices(self: ModuleInstance): DropdownChoice[] {
 	if (self.overlayChoices.length > 0) return self.overlayChoices
 
-	const subs = self.controlState
-		.filter((s) => !s.mainComposition && hasPayload(s))
-		.map((s) => ({ id: s.subCompositionId, label: s.subCompositionName }))
-
+	const subs = controlSubChoices(self)
 	return subs.length > 0 ? subs : [{ id: '', label: 'No overlays loaded' }]
 }
 

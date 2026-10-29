@@ -134,11 +134,12 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 
 	// Subcompositions with no model behind them (bespoke apps).
 	const modelledIds = new Set(self.overlayModels.map((m) => m.id))
+	const graphicIds = new Set(self.controlSubs.filter((sub) => sub.isGraphic).map((sub) => sub.id))
 
 	for (const sub of self.controlState) {
 		if (sub.mainComposition || modelledIds.has(sub.subCompositionId)) continue
-		// Skip internal composition layers that carry no data of their own.
-		if (!hasPayload(sub)) continue
+		// Skip internal composition layers that carry no data of their own, unless /model shows they're a graphic.
+		if (!hasPayload(sub) && !graphicIds.has(sub.subCompositionId)) continue
 
 		const { id: safeName, label } = uniqueName(sub.subCompositionId, sub.subCompositionName)
 		add(

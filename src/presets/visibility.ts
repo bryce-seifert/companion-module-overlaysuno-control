@@ -11,7 +11,7 @@ import { ICON_SHOW_OVERLAY, ICON_HIDE_OVERLAY, ICON_TOGGLE_OVERLAY } from '../ic
 
 const VISIBILITY_CATEGORY = 'Overlays - Visibility'
 
-const ACTIVE_COLORS = {
+export const ACTIVE_COLORS = {
 	bgcolor: COLOR.amber,
 	color: COLOR.ink,
 } as const
@@ -44,6 +44,20 @@ function visibilityFeedbacks(
 	]
 }
 
+/** Icon-over-label button style shared by the visibility and animate presets. */
+export function iconButtonStyle(label: string, icon: string): CompanionButtonStyleProps {
+	return {
+		text: label,
+		size: 15,
+		color: COLOR.white,
+		bgcolor: COLOR.surface,
+		show_topbar: false,
+		alignment: 'center:bottom',
+		png64: icon,
+		pngalignment: 'center:top',
+	}
+}
+
 /** Ids of the visibility actions this app supports. */
 type SupportedActions = ReadonlySet<string>
 
@@ -57,16 +71,7 @@ function addVisibilityButton(
 		type: 'button',
 		category: VISIBILITY_CATEGORY,
 		name: spec.name,
-		style: {
-			text: spec.label,
-			size: 15,
-			color: COLOR.white,
-			bgcolor: COLOR.surface,
-			show_topbar: false,
-			alignment: 'center:bottom',
-			png64: spec.icon,
-			pngalignment: 'center:top',
-		},
+		style: iconButtonStyle(spec.label, spec.icon),
 		steps: [
 			{
 				down: [{ actionId: 'overlay_visibility', options: { action: spec.action, overlayId: spec.overlayId } }],
@@ -91,16 +96,7 @@ function addBulkVisibilityButton(
 		type: 'button',
 		category: VISIBILITY_CATEGORY,
 		name,
-		style: {
-			text: label,
-			size: 15,
-			color: COLOR.white,
-			bgcolor: COLOR.surface,
-			show_topbar: false,
-			alignment: 'center:bottom',
-			png64: icon,
-			pngalignment: 'center:top',
-		},
+		style: iconButtonStyle(label, icon),
 		steps: [{ down: [{ actionId: 'overlay_visibility', options: { action } }], up: [] }],
 		feedbacks: [],
 	}
