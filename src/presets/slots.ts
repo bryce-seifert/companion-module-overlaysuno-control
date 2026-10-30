@@ -1,6 +1,6 @@
 import type { CompanionPresetDefinitions } from '@companion-module/base'
 import type { OverlayModel } from '../api.js'
-import { COLOR } from '../style.js'
+import { iconButtonStyle } from '../style.js'
 import { ICON_SLOT_TAKE_FIRST, ICON_SLOT_TAKE_PREVIOUS, ICON_SLOT_TAKE_NEXT, ICON_SLOT_TAKE_LAST } from '../icons.js'
 
 export function buildSlotPresets(model: OverlayModel, presets: CompanionPresetDefinitions): void {
@@ -18,16 +18,7 @@ export function buildSlotPresets(model: OverlayModel, presets: CompanionPresetDe
 			type: 'button',
 			category,
 			name: `${model.name} - ${sa.label}`,
-			style: {
-				text: `${sa.label}`,
-				size: 15,
-				color: COLOR.white,
-				bgcolor: COLOR.surface,
-				show_topbar: false,
-				alignment: 'center:bottom',
-				png64: sa.icon,
-				pngalignment: 'center:top',
-			},
+			style: iconButtonStyle(`${sa.label}`, sa.icon),
 			steps: [
 				{
 					down: [

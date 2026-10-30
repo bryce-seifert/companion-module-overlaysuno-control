@@ -1,11 +1,13 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import { parseJsonObject } from '../util.js'
+import { customizationWriter } from '../writers.js'
 import { buildFieldActions } from './fields.js'
 
 export function getCustomizationActions(self: ModuleInstance): CompanionActionDefinitions {
 	if (!self.customizationModel) return {}
 	const fields = self.customizationModel.model
+	const writer = customizationWriter(self)
 
 	return {
 		set_customization: {
@@ -25,18 +27,20 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 					self.log('error', `SetCustomization: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({ command: 'SetCustomization', value: parsed.value })
+				await writer.setAll('', parsed.value)
 			},
 			learn: async (event) => {
-				const values = await self.fetchLiveCustomization()
+				const values = await writer.fetchValues('')
 				if (!values) return undefined
 				// Learn replaces options wholesale — carry existing ones through. Pretty-print for editing.
 				return { ...event.options, value: JSON.stringify(values, null, 2) }
 			},
 		},
-		...buildFieldActions(self, {
+		...buildFieldActions({
 			fields,
 			targetOptions: [],
+			targetOf: () => '',
+			writer,
 			actionIds: {
 				set: 'set_customization_field',
 				toggle: 'toggle_customization_field',
@@ -47,15 +51,6 @@ export function getCustomizationActions(self: ModuleInstance): CompanionActionDe
 				toggle: 'Customize - Toggle Field',
 				execute: 'Customize - Execute Field',
 			},
-			commands: {
-				set: 'SetCustomizationField',
-				increment: 'IncrementCustomizationField',
-				decrement: 'DecrementCustomizationField',
-				toggle: 'ToggleCustomizationField',
-				execute: 'ExecuteCustomizationField',
-			},
-			payloadFor: () => ({ command: '' }),
-			fetchValues: async () => self.fetchLiveCustomization(),
 		}),
 	}
 }

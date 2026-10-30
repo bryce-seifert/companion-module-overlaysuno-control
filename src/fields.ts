@@ -23,6 +23,11 @@ export function isContentField(field: OverlayModelField): boolean {
 	return !isActionField(field)
 }
 
+/** True for content fields an action can write — read-only info text is shown, never set. */
+export function isWritableField(field: OverlayModelField): boolean {
+	return isContentField(field) && field.type !== FieldType.InfoText
+}
+
 /** True for boolean fields a Toggle* command can flip. */
 export function isToggleField(field: OverlayModelField): boolean {
 	return TOGGLE_FIELD_TYPES.has(field.type)

@@ -1,4 +1,5 @@
 import { isSubCompositionVisible, type ControlSubComposition } from './api.js'
+import type { Graphic } from './app-shape.js'
 import {
 	GLOBAL_OVERLAY_ID,
 	GLOBAL_VISIBILITY_FIELD,
@@ -6,15 +7,6 @@ import {
 	VISIBLE_SUBCOMPOSITION_STATE,
 	type JsonObject,
 } from './types.js'
-
-/** Copy of `subs` with each matching subcomposition updated by `patch`. */
-export function patchSubs(
-	subs: ControlSubComposition[],
-	matches: (sub: ControlSubComposition) => boolean,
-	patch: (sub: ControlSubComposition) => Partial<ControlSubComposition>,
-): ControlSubComposition[] {
-	return subs.map((s) => (matches(s) ? { ...s, ...patch(s) } : s))
-}
 
 /** The only non-app subcomposition, when there is exactly one — how single-overlay apps are targeted. */
 export function soleOverlaySub(subs: ControlSubComposition[]): ControlSubComposition | undefined {
@@ -43,42 +35,40 @@ export function withVisibility(
 	subs: ControlSubComposition[],
 	overlayId: string,
 	visible: boolean,
-	logicLayers: ReadonlyMap<string, string>,
+	graphics: readonly Pick<Graphic, 'id' | 'layerKey'>[],
 ): ControlSubComposition[] {
 	const state = visible ? VISIBLE_SUBCOMPOSITION_STATE : HIDDEN_SUBCOMPOSITION_STATE
 
 	if (overlayId && overlayId !== GLOBAL_OVERLAY_ID) {
-		const layer = visible ? logicLayers.get(overlayId) : undefined
+		const layerOf = (id: string) => graphics.find((graphic) => graphic.id === id)?.layerKey
+		const layer = visible ? layerOf(overlayId) : undefined
 		return subs.map((s) => {
 			if (s.subCompositionId === overlayId) return { ...s, state }
-			if (layer && logicLayers.get(s.subCompositionId) === layer) return { ...s, state: HIDDEN_SUBCOMPOSITION_STATE }
+			if (layer && layerOf(s.subCompositionId) === layer) return { ...s, state: HIDDEN_SUBCOMPOSITION_STATE }
 			return s
 		})
 	}
 
 	const flagSub = globalVisibilityFlagSub(subs)
 	if (flagSub) {
-		return patchSubs(
-			subs,
-			(s) => s === flagSub,
-			(s) => ({ payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } }),
+		return subs.map((s) =>
+			s === flagSub ? { ...s, payload: { ...s.payload, [GLOBAL_VISIBILITY_FIELD]: visible } } : s,
 		)
 	}
 
 	const only = soleOverlaySub(subs)
-	return patchSubs(
-		subs,
-		(s) => s === only,
-		() => ({ state }),
-	)
+	return subs.map((s) => (s === only ? { ...s, state } : s))
 }
 
 /**
- * A subcomposition's payload with `fields` merged in. Only keys /control already reports are taken, so
- * an update can't change the app's shape (and force a definitions rebuild) between polls.
+ * Subcompositions with `fields` merged into one subcomposition's payload. Only keys /control already
+ * reports are taken, so an update can't change the app's shape (and force a definitions rebuild) between polls.
  */
-export function mergeKnownFields(sub: ControlSubComposition, fields: JsonObject): Partial<ControlSubComposition> {
-	const payload = sub.payload ?? {}
-	const known = Object.entries(fields).filter(([key]) => key in payload)
-	return { payload: { ...payload, ...Object.fromEntries(known) } }
+export function withFields(subs: ControlSubComposition[], subId: string, fields: JsonObject): ControlSubComposition[] {
+	return subs.map((s) => {
+		if (s.subCompositionId !== subId) return s
+		const payload = s.payload ?? {}
+		const known = Object.entries(fields).filter(([key]) => key in payload)
+		return { ...s, payload: { ...payload, ...Object.fromEntries(known) } }
+	})
 }

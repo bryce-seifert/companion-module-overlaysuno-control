@@ -3,11 +3,11 @@ import type { ModuleInstance } from '../main.js'
 import type { ApiPayload } from '../api.js'
 import { collectSchemaCommands, argInput, resolveArg, titleCase } from '../schema-commands.js'
 import { errorMessage } from '../util.js'
-import { overlayChoices } from './shared.js'
+import { graphicChoices } from './shared.js'
 
 export function getSchemaActions(self: ModuleInstance): CompanionActionDefinitions {
 	const actions: CompanionActionDefinitions = {}
-	const choices = overlayChoices(self)
+	const choices = graphicChoices(self)
 
 	for (const cmd of collectSchemaCommands(self)) {
 		const label = titleCase(cmd.title)

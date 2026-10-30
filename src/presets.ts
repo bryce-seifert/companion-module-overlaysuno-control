@@ -6,7 +6,6 @@ import { buildContentFieldPresets } from './presets/content.js'
 import { buildSlotPresets } from './presets/slots.js'
 import { buildCustomizationPresets } from './presets/customization.js'
 import { buildThumbnailPresets } from './presets/thumbnail.js'
-import { buildSubCompositionPresets } from './presets/subcomposition.js'
 
 export function UpdatePresets(self: ModuleInstance): void {
 	const presets: CompanionPresetDefinitions = {}
@@ -15,8 +14,7 @@ export function UpdatePresets(self: ModuleInstance): void {
 
 	buildVisibilityPresets(self, presets)
 
-	buildSubCompositionPresets(self, presets)
-
+	// Only real overlay models get field presets: bespoke apps' fields are unlabelled datastore keys.
 	for (const model of self.overlayModels) {
 		buildContentFieldPresets(model, presets)
 

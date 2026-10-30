@@ -4,17 +4,13 @@ import type {
 	CompanionButtonStyleProps,
 } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
-import { COLOR } from '../style.js'
+import { ACTIVE_COLORS, iconButtonStyle } from '../style.js'
 import { addDivider } from './layout.js'
-import { supportedVisibilityActions } from '../actions/visibility.js'
+import type { Graphic } from '../app-shape.js'
+import { sanitizeName } from '../variables.js'
 import { ICON_SHOW_OVERLAY, ICON_HIDE_OVERLAY, ICON_TOGGLE_OVERLAY } from '../icons.js'
 
 const VISIBILITY_CATEGORY = 'Overlays - Visibility'
-
-export const ACTIVE_COLORS = {
-	bgcolor: COLOR.amber,
-	color: COLOR.ink,
-} as const
 
 type VisibilityAction = 'show' | 'hide' | 'toggle'
 
@@ -29,7 +25,7 @@ interface VisibilityPresetSpec {
 	invertFeedback?: boolean
 }
 
-function visibilityFeedbacks(
+export function visibilityFeedbacks(
 	overlayId: string,
 	feedbackStyle: Partial<CompanionButtonStyleProps>,
 	invertFeedback: boolean,
@@ -42,20 +38,6 @@ function visibilityFeedbacks(
 			style: feedbackStyle,
 		},
 	]
-}
-
-/** Icon-over-label button style shared by the visibility and animate presets. */
-export function iconButtonStyle(label: string, icon: string): CompanionButtonStyleProps {
-	return {
-		text: label,
-		size: 15,
-		color: COLOR.white,
-		bgcolor: COLOR.surface,
-		show_topbar: false,
-		alignment: 'center:bottom',
-		png64: icon,
-		pngalignment: 'center:top',
-	}
 }
 
 /** Ids of the visibility actions this app supports. */
@@ -110,7 +92,7 @@ function buildSingleOverlayVisibilityPresets(supported: SupportedActions, preset
 		label: 'Show\\nOverlay',
 		overlayId: '',
 		icon: ICON_SHOW_OVERLAY,
-		feedbackStyle: { ...ACTIVE_COLORS },
+		feedbackStyle: ACTIVE_COLORS,
 	})
 	addVisibilityButton(supported, presets, {
 		key: 'hide_global_overlay',
@@ -133,45 +115,80 @@ function buildSingleOverlayVisibilityPresets(supported: SupportedActions, preset
 	})
 }
 
+function addOverlayButtons(supported: SupportedActions, presets: CompanionPresetDefinitions, overlay: Graphic): void {
+	addVisibilityButton(supported, presets, {
+		key: `show_${overlay.id}`,
+		action: 'show',
+		name: `Show: ${overlay.name}`,
+		label: `Show\\n${overlay.name}`,
+		overlayId: overlay.id,
+		icon: ICON_SHOW_OVERLAY,
+		feedbackStyle: ACTIVE_COLORS,
+	})
+	addVisibilityButton(supported, presets, {
+		key: `hide_${overlay.id}`,
+		action: 'hide',
+		name: `Hide: ${overlay.name}`,
+		label: `Hide\\n${overlay.name}`,
+		overlayId: overlay.id,
+		icon: ICON_HIDE_OVERLAY,
+		feedbackStyle: ACTIVE_COLORS,
+		invertFeedback: true,
+	})
+	addVisibilityButton(supported, presets, {
+		key: `toggle_${overlay.id}`,
+		action: 'toggle',
+		name: `Toggle: ${overlay.name}`,
+		label: `Toggle\\n${overlay.name}`,
+		overlayId: overlay.id,
+		icon: ICON_TOGGLE_OVERLAY,
+		// Multi-overlay toggle feedback only swaps the icon (preserves historical style).
+		feedbackStyle: { png64: ICON_HIDE_OVERLAY },
+	})
+}
+
+/** Overlays sharing a logic layer share a screen position, so they're listed together; the rest come last. */
+function addLayeredOverlayButtons(
+	graphics: Graphic[],
+	supported: SupportedActions,
+	presets: CompanionPresetDefinitions,
+): void {
+	const layers = new Map<string, Graphic[]>()
+	const unlayered: Graphic[] = []
+	for (const graphic of graphics) {
+		if (graphic.layerKey) layers.set(graphic.layerKey, [...(layers.get(graphic.layerKey) ?? []), graphic])
+		else unlayered.push(graphic)
+	}
+
+	for (const [layerKey, members] of layers) {
+		addDivider(
+			presets,
+			VISIBILITY_CATEGORY,
+			`vis_layer_${sanitizeName(layerKey)}`,
+			`Logic layer: ${members[0].layerName}`,
+		)
+		for (const graphic of members) addOverlayButtons(supported, presets, graphic)
+	}
+
+	if (unlayered.length === 0) return
+	addDivider(presets, VISIBILITY_CATEGORY, 'vis_layer_none', 'Other')
+	for (const graphic of unlayered) addOverlayButtons(supported, presets, graphic)
+}
+
 function buildMultiOverlayVisibilityPresets(
-	self: ModuleInstance,
+	graphics: Graphic[],
 	supported: SupportedActions,
 	presets: CompanionPresetDefinitions,
 ): void {
 	const hasPerOverlay = supported.has('show') || supported.has('hide') || supported.has('toggle')
 
-	for (const overlay of hasPerOverlay ? self.overlayList : []) {
-		addDivider(presets, VISIBILITY_CATEGORY, `vis_header_${overlay.id}`, overlay.name)
-
-		addVisibilityButton(supported, presets, {
-			key: `show_${overlay.id}`,
-			action: 'show',
-			name: `Show: ${overlay.name}`,
-			label: `Show\\n${overlay.name}`,
-			overlayId: overlay.id,
-			icon: ICON_SHOW_OVERLAY,
-			feedbackStyle: { ...ACTIVE_COLORS },
-		})
-		addVisibilityButton(supported, presets, {
-			key: `hide_${overlay.id}`,
-			action: 'hide',
-			name: `Hide: ${overlay.name}`,
-			label: `Hide\\n${overlay.name}`,
-			overlayId: overlay.id,
-			icon: ICON_HIDE_OVERLAY,
-			feedbackStyle: { ...ACTIVE_COLORS },
-			invertFeedback: true,
-		})
-		addVisibilityButton(supported, presets, {
-			key: `toggle_${overlay.id}`,
-			action: 'toggle',
-			name: `Toggle: ${overlay.name}`,
-			label: `Toggle\\n${overlay.name}`,
-			overlayId: overlay.id,
-			icon: ICON_TOGGLE_OVERLAY,
-			// Multi-overlay toggle feedback only swaps the icon (preserves historical style).
-			feedbackStyle: { png64: ICON_HIDE_OVERLAY },
-		})
+	if (hasPerOverlay && graphics.some((graphic) => graphic.layerKey)) {
+		addLayeredOverlayButtons(graphics, supported, presets)
+	} else {
+		for (const overlay of hasPerOverlay ? graphics : []) {
+			addDivider(presets, VISIBILITY_CATEGORY, `vis_header_${overlay.id}`, overlay.name)
+			addOverlayButtons(supported, presets, overlay)
+		}
 	}
 
 	if (supported.has('show_all') || supported.has('hide_all')) {
@@ -198,13 +215,13 @@ function buildMultiOverlayVisibilityPresets(
 }
 
 export function buildVisibilityPresets(self: ModuleInstance, presets: CompanionPresetDefinitions): void {
-	const supported = new Set<string>(supportedVisibilityActions(self).map((action) => action.id))
+	const supported = new Set<string>(self.shape.visibilityActions.map((action) => action.id))
 	if (supported.size === 0) return
 
-	if (self.overlayList.length === 0) {
+	if (self.shape.singleOverlay) {
 		buildSingleOverlayVisibilityPresets(supported, presets)
 		return
 	}
 
-	buildMultiOverlayVisibilityPresets(self, supported, presets)
+	buildMultiOverlayVisibilityPresets(self.shape.graphics, supported, presets)
 }

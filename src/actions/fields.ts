@@ -3,19 +3,19 @@ import type {
 	CompanionOptionValues,
 	SomeCompanionActionInputField,
 } from '@companion-module/base'
-import type { ApiPayload, OverlayModelField } from '../api.js'
+import type { OverlayModelField } from '../api.js'
 import {
 	buildFieldChoices,
 	buildFieldValueInputs,
 	escExpr,
 	isActionField,
-	isContentField,
 	isToggleField,
+	isWritableField,
 	matchStoredType,
 	NUMERIC_FIELD_TYPES,
 } from '../fields.js'
-import type { ModuleInstance } from '../main.js'
-import type { DropdownChoice, JsonObject } from '../types.js'
+import type { DropdownChoice } from '../types.js'
+import type { FieldWriter } from '../writers.js'
 import { EXECUTE_FUNCTION_CHOICES } from './shared.js'
 
 export interface FieldActionConfig {
@@ -31,15 +31,9 @@ export interface FieldActionConfig {
 		toggle: string
 		execute: string
 	}
-	commands: {
-		set: string
-		increment: string
-		decrement: string
-		toggle: string
-		execute: string
-	}
-	payloadFor: (options: CompanionOptionValues) => ApiPayload
-	fetchValues: (options: CompanionOptionValues) => Promise<JsonObject | undefined>
+	/** The writer's target id for an action's options. */
+	targetOf: (options: CompanionOptionValues) => string
+	writer: FieldWriter
 }
 
 function fieldOption(choices: DropdownChoice[]): SomeCompanionActionInputField {
@@ -54,11 +48,12 @@ function fieldOption(choices: DropdownChoice[]): SomeCompanionActionInputField {
 }
 
 /** Set / toggle / execute actions for a model's fields. Kinds with no eligible fields are left out. */
-export function buildFieldActions(self: ModuleInstance, config: FieldActionConfig): CompanionActionDefinitions {
+export function buildFieldActions(config: FieldActionConfig): CompanionActionDefinitions {
 	const actions: CompanionActionDefinitions = {}
-	const contentFields = config.fields.filter(isContentField)
+	const { writer, targetOf } = config
+	const contentFields = config.fields.filter(isWritableField)
 	const toggleFields = config.fields.filter(isToggleField)
-	const actionFields = config.fields.filter(isActionField)
+	const actionFields = writer.execute ? config.fields.filter(isActionField) : []
 	const numericFieldIds = new Set(
 		contentFields.filter((field) => NUMERIC_FIELD_TYPES.has(field.type)).map((field) => field.id),
 	)
@@ -93,25 +88,21 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 				...valueInputs.valueOptions,
 			],
 			callback: async (event) => {
+				const targetId = targetOf(event.options)
 				const fieldId = String(event.options.fieldId)
 				const isNumeric = numericFieldIds.has(fieldId)
-				const requested = event.options.operation
-				const operation = isNumeric && (requested === 'increment' || requested === 'decrement') ? requested : 'set'
-				const payload: ApiPayload = {
-					...config.payloadFor(event.options),
-					command: config.commands[operation],
-					fieldId,
-				}
-				// Increment/decrement send a step, so the field's stored type doesn't apply.
-				const stored = operation === 'set' ? self.storedFieldValue(payload) : undefined
+				const requested = valueInputs.resolveValue(event.options)
+				const operation = event.options.operation
 
-				await self.sendAndRefresh({
-					...payload,
-					value: matchStoredType(valueInputs.resolveValue(event.options), stored, isNumeric),
-				})
+				if (isNumeric && (operation === 'increment' || operation === 'decrement')) {
+					// A step, so the field's stored type doesn't apply.
+					await writer.adjust(targetId, fieldId, operation, matchStoredType(requested, undefined, true))
+					return
+				}
+				await writer.set(targetId, fieldId, matchStoredType(requested, writer.stored(targetId, fieldId), isNumeric))
 			},
 			learn: async (event) => {
-				const values = await config.fetchValues(event.options)
+				const values = await writer.fetchValues(targetOf(event.options))
 				if (!values) return undefined
 
 				const learned = valueInputs.learnValue(event.options, values[String(event.options.fieldId)])
@@ -125,11 +116,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 			name: config.names.toggle,
 			options: [...config.targetOptions, fieldOption(buildFieldChoices(toggleFields))],
 			callback: async (event) => {
-				await self.sendAndRefresh({
-					...config.payloadFor(event.options),
-					command: config.commands.toggle,
-					fieldId: String(event.options.fieldId),
-				})
+				await writer.toggle(targetOf(event.options), String(event.options.fieldId))
 			},
 		}
 	}
@@ -149,12 +136,7 @@ export function buildFieldActions(self: ModuleInstance, config: FieldActionConfi
 				},
 			],
 			callback: async (event) => {
-				await self.sendAndRefresh({
-					...config.payloadFor(event.options),
-					command: config.commands.execute,
-					fieldId: String(event.options.fieldId),
-					value: String(event.options.value),
-				})
+				await writer.execute?.(targetOf(event.options), String(event.options.fieldId), String(event.options.value))
 			},
 		}
 	}

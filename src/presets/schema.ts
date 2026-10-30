@@ -1,6 +1,6 @@
 import type { CompanionPresetDefinitions, CompanionButtonPresetDefinition, InputValue } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
-import { COLOR } from '../style.js'
+import { ACTIVE_COLORS, COLOR } from '../style.js'
 import { collectSchemaCommands, argDefault, titleCase } from '../schema-commands.js'
 import { resolveVisibilityField } from '../inferred-model.js'
 
@@ -16,10 +16,7 @@ function visibilityFeedbacks(self: ModuleInstance, command: string): CompanionBu
 			feedbackId: 'overlay_content_field',
 			isInverted: command.startsWith('Hide'),
 			options: { overlayId: target.overlayId, fieldId: target.fieldId, value_boolean: true },
-			style: {
-				bgcolor: COLOR.amber,
-				color: COLOR.ink,
-			},
+			style: ACTIVE_COLORS,
 		},
 	]
 }

@@ -2,11 +2,11 @@ import type { OverlayModel } from '../api.js'
 import type { ModuleInstance } from '../main.js'
 import type { DropdownChoice } from '../types.js'
 
-export function overlayChoices(self: ModuleInstance): DropdownChoice[] {
-	if (self.overlayChoices.length > 0) return self.overlayChoices
-	// Apps that don't implement GetOverlays are single-overlay — target with an empty id.
-	const label = self.unsupportedCommands.has('GetOverlays') ? 'Default (single overlay)' : 'No overlays loaded'
-	return [{ id: '', label }]
+/** Overlays the visibility action and feedback target. Single-overlay apps get one choice, addressed with ''. */
+export function graphicChoices(self: ModuleInstance): DropdownChoice[] {
+	const { graphics } = self.shape
+	if (graphics.length === 0) return [{ id: '', label: 'No overlays loaded' }]
+	return graphics.map((graphic) => ({ id: graphic.id, label: graphic.name }))
 }
 
 /** Dropdown choices for a set of overlay models, or a placeholder when there are none. */

@@ -1,9 +1,8 @@
-import { modelChoices } from './actions/shared.js'
-import { COLOR } from './style.js'
+import { graphicChoices, modelChoices } from './actions/shared.js'
+import { ACTIVE_COLORS } from './style.js'
 import type { ModuleInstance } from './main.js'
 import { buildFieldValueInputs, isContentField } from './fields.js'
-import { controlSubChoices, inferredContentModels } from './inferred-model.js'
-import { GLOBAL_OVERLAY_ID, type DropdownChoice, type JsonValue } from './types.js'
+import { GLOBAL_OVERLAY_ID, type JsonValue } from './types.js'
 import { normalizeColor } from './variables.js'
 
 function contentMatches(live: JsonValue | undefined, expected: string | number | boolean, fieldType?: string): boolean {
@@ -36,20 +35,11 @@ function contentMatches(live: JsonValue | undefined, expected: string | number |
 	return String(value) === String(expected)
 }
 
-/** Overlays selectable in the visibility feedback. */
-function visibilityChoices(self: ModuleInstance): DropdownChoice[] {
-	if (self.overlayChoices.length > 0) return self.overlayChoices
-
-	const subs = controlSubChoices(self)
-	return subs.length > 0 ? subs : [{ id: '', label: 'No overlays loaded' }]
-}
-
 export function UpdateFeedbacks(self: ModuleInstance): void {
-	const overlayChoices = visibilityChoices(self)
+	const overlayChoices = graphicChoices(self)
 
 	// Same type-aware value editors the Set Content Field action uses.
-	// Bespoke apps have no models, so fall back to fields inferred from /control payloads.
-	const contentModels = inferredContentModels(self)
+	const contentModels = self.shape.contentModels
 	const contentFields = contentModels.flatMap((m) => m.model).filter(isContentField)
 	const contentInputs = buildFieldValueInputs(contentFields)
 	const contentOverlays = modelChoices(contentModels)
@@ -60,10 +50,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 		overlay_content_field: {
 			name: 'Overlay - Content Field Matches Value',
 			type: 'boolean',
-			defaultStyle: {
-				color: COLOR.ink,
-				bgcolor: COLOR.amber,
-			},
+			defaultStyle: ACTIVE_COLORS,
 			options: [
 				{
 					id: 'overlayId',
@@ -106,10 +93,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 		customization_field: {
 			name: 'Customization Field Matches Value',
 			type: 'boolean',
-			defaultStyle: {
-				color: COLOR.ink,
-				bgcolor: COLOR.amber,
-			},
+			defaultStyle: ACTIVE_COLORS,
 			options: [
 				{
 					id: 'fieldId',
@@ -138,10 +122,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 		overlay_visible: {
 			name: 'Overlay Visible',
 			type: 'boolean',
-			defaultStyle: {
-				color: COLOR.ink,
-				bgcolor: COLOR.amber,
-			},
+			defaultStyle: ACTIVE_COLORS,
 			options: [
 				{
 					id: 'overlayId',
@@ -155,7 +136,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			callback: (feedback) => {
 				// Single-overlay apps store visibility under 'global'; those presets pass ''.
 				const overlayId = String(feedback.options.overlayId) || GLOBAL_OVERLAY_ID
-				return self.overlayVisibility.get(overlayId) === true
+				return self.isOverlayVisible(overlayId)
 			},
 		},
 

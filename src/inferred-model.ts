@@ -1,7 +1,7 @@
 import type { ModuleInstance } from './main.js'
 import type { ControlModelNode, ControlSubComposition, OverlayModel, OverlayModelField } from './api.js'
 import { hasPayload } from './api.js'
-import { FieldType, type DropdownChoice, type JsonObject, type JsonValue } from './types.js'
+import { FieldType, type JsonObject, type JsonValue } from './types.js'
 import { isRgbObject } from './variables.js'
 
 /**
@@ -14,11 +14,12 @@ function inferFieldType(value: JsonValue): string | undefined {
 	if (isRgbObject(value)) return FieldType.Color
 	if (typeof value === 'number') return FieldType.Number
 	if (typeof value === 'string') return FieldType.Text
+	if (value !== null) return FieldType.Json
 	return undefined
 }
 
 /** The datastore key is the only name available, so it serves as both id and title. */
-function inferFields(payload: JsonObject): OverlayModelField[] {
+export function inferFields(payload: JsonObject): OverlayModelField[] {
 	const fields: OverlayModelField[] = []
 
 	for (const [id, value] of Object.entries(payload)) {
@@ -78,55 +79,14 @@ export function flattenControlModel(roots: ControlModelNode[]): ControlSub[] {
 	return subs
 }
 
-/** Subcomposition id → logic layer key, for the subcompositions that have one. */
-export function logicLayerMap(subs: ControlSub[]): Map<string, string> {
-	return new Map(subs.flatMap((sub) => (sub.layerKey ? [[sub.id, sub.layerKey] as const] : [])))
-}
-
-/** Subcompositions an operator animates on and off air. */
-export function graphicSubs(self: ModuleInstance): ControlSub[] {
-	return self.controlSubs.filter((sub) => sub.isGraphic)
-}
-
-/** Subcompositions with writable fields, as overlay models. */
-export function controlSubModels(self: ModuleInstance): OverlayModel[] {
-	return self.controlSubs
-		.map((sub) => ({ ...sub, fields: sub.fields.filter((f) => f.type !== FieldType.InfoText) }))
-		.filter((sub) => sub.fields.length > 0)
-		.map((sub) => ({ id: sub.id, name: sub.name, model: sub.fields, groups: [], hasSlots: false }))
-}
-
-/** Subcompositions that can be animated, from /model when known, otherwise from /control. */
-export function controlSubChoices(self: ModuleInstance): DropdownChoice[] {
-	if (self.controlSubs.length > 0) return graphicSubs(self).map((sub) => ({ id: sub.id, label: sub.name }))
-
-	return self.controlState
-		.filter((s) => !s.mainComposition && hasPayload(s))
-		.map((s) => ({ id: s.subCompositionId, label: s.subCompositionName }))
+/** A subcomposition's /model fields as an overlay model. */
+export function controlSubModel(sub: ControlSub): OverlayModel {
+	return { id: sub.id, name: sub.name, model: sub.fields, groups: [], hasSlots: false }
 }
 
 /** Subcompositions carrying data of their own, in /control order. */
-function contentSubCompositions(self: ModuleInstance): ControlSubComposition[] {
+export function contentSubCompositions(self: ModuleInstance): ControlSubComposition[] {
 	return self.controlState.filter((s) => !s.mainComposition && hasPayload(s))
-}
-
-/**
- * Overlay models for read-only content lookups: real models when available, then the /model tree's
- * fields, otherwise a best-effort reconstruction from live /control payloads.
- */
-export function inferredContentModels(self: ModuleInstance): OverlayModel[] {
-	if (self.overlayModels.length > 0) return self.overlayModels
-
-	const modelled = controlSubModels(self)
-	if (modelled.length > 0) return modelled
-
-	return contentSubCompositions(self).map((sub) => ({
-		id: sub.subCompositionId,
-		name: sub.subCompositionName,
-		model: inferFields(sub.payload ?? {}),
-		groups: [],
-		hasSlots: false,
-	}))
 }
 
 const VISIBILITY_COMMAND_PREFIXES = ['Show', 'Hide', 'Toggle'] as const

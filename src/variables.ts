@@ -1,6 +1,5 @@
 import type { CompanionVariableDefinition } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
-import { isSubCompositionVisible, hasPayload } from './api.js'
 import { FieldType, GLOBAL_OVERLAY_ID, type JsonValue } from './types.js'
 import { isPlainObject } from './util.js'
 
@@ -52,10 +51,11 @@ function formatValue(value: unknown): VariableValue {
 	return JSON.stringify(value)
 }
 
-interface VariableEntry {
+/** A registered variable and how to read its current value from the module's state. */
+export interface VariableEntry {
 	variableId: string
 	name: string
-	value: VariableValue | undefined
+	read: () => VariableValue | undefined
 }
 
 interface UniqueName {
@@ -88,71 +88,40 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 	const entries: VariableEntry[] = []
 	const seen = new Set<string>()
 
-	function add(variableId: string, name: string, value: VariableValue | undefined): void {
+	function add(variableId: string, name: string, read: VariableEntry['read']): void {
 		if (seen.has(variableId)) {
 			self.log('warn', `Duplicate variable id "${variableId}" ("${name}") - skipping`)
 			return
 		}
 		seen.add(variableId)
-		entries.push({ variableId, name, value })
+		entries.push({ variableId, name, read })
 	}
+
+	const visibility = (overlayId: string) => () =>
+		self.overlayVisibility.has(overlayId) ? (self.isOverlayVisible(overlayId) ? 'true' : 'false') : undefined
 
 	const uniqueName = createUniqueNameTracker()
 
-	add('overlay_count', 'Overlays - Total Count', self.overlayList.length)
+	add('overlay_count', 'Overlays - Total Count', () => self.overlayList.length)
 
-	for (const overlay of self.overlayList) {
-		const { id: safeName, label } = uniqueName(overlay.id, overlay.name)
-		const visible = self.overlayVisibility.get(overlay.id)
-		add(
-			`overlay_${safeName}_visibility`,
-			`Overlay - ${label} - Visible`,
-			self.overlayVisibility.has(overlay.id) ? (visible ? 'true' : 'false') : undefined,
-		)
-	}
-
-	// Global visibility variable for single-overlay apps (e.g. Lucky Draw).
-	if (self.overlayList.length === 0 && self.overlayVisibility.has(GLOBAL_OVERLAY_ID)) {
-		const visible = self.overlayVisibility.get(GLOBAL_OVERLAY_ID)
-		add('overlay_visible', 'Overlay Visible', visible ? 'true' : 'false')
-	}
-
-	// Per-overlay content field variables (driven by overlay models).
-	for (const model of self.overlayModels) {
-		const { id: safeOverlayName, label } = uniqueName(model.id, model.name)
-		const content = self.overlayContent.get(model.id) ?? {}
-
-		for (const field of model.model) {
-			const safeFieldName = sanitizeName(field.id)
-			add(
-				`overlay_${safeOverlayName}_${safeFieldName}`,
-				`Overlay - ${label} - ${field.title}`,
-				formatValue(normalizeColor(content[field.id], field.type)),
-			)
+	if (self.shape.singleOverlay) {
+		// Global visibility variable for single-overlay apps (e.g. Lucky Draw).
+		if (self.overlayVisibility.has(GLOBAL_OVERLAY_ID)) {
+			add('overlay_visible', 'Overlay Visible', visibility(GLOBAL_OVERLAY_ID))
+		}
+	} else {
+		for (const graphic of self.shape.graphics) {
+			const { id: safeName, label } = uniqueName(graphic.id, graphic.name)
+			add(`overlay_${safeName}_visibility`, `Overlay - ${label} - Visible`, visibility(graphic.id))
 		}
 	}
 
-	// Subcompositions with no model behind them (bespoke apps).
-	const modelledIds = new Set(self.overlayModels.map((m) => m.id))
-	const graphicIds = new Set(self.controlSubs.filter((sub) => sub.isGraphic).map((sub) => sub.id))
+	for (const model of self.shape.contentModels) {
+		const { id: safeOverlayName, label } = uniqueName(model.id, model.name)
 
-	for (const sub of self.controlState) {
-		if (sub.mainComposition || modelledIds.has(sub.subCompositionId)) continue
-		// Skip internal composition layers that carry no data of their own, unless /model shows they're a graphic.
-		if (!hasPayload(sub) && !graphicIds.has(sub.subCompositionId)) continue
-
-		const { id: safeName, label } = uniqueName(sub.subCompositionId, sub.subCompositionName)
-		add(
-			`overlay_${safeName}_visibility`,
-			`Overlay - ${label} - Visible`,
-			isSubCompositionVisible(sub) ? 'true' : 'false',
-		)
-
-		for (const [fieldId, value] of Object.entries(sub.payload ?? {})) {
-			add(
-				`overlay_${safeName}_${sanitizeName(fieldId)}`,
-				`Overlay - ${label} - ${fieldId}`,
-				formatValue(normalizeColor(value)),
+		for (const field of model.model) {
+			add(`overlay_${safeOverlayName}_${sanitizeName(field.id)}`, `Overlay - ${label} - ${field.title}`, () =>
+				formatValue(normalizeColor(self.overlayContent.get(model.id)?.[field.id], field.type)),
 			)
 		}
 	}
@@ -161,24 +130,26 @@ function buildVariableEntries(self: ModuleInstance): VariableEntry[] {
 	if (self.customizationModel) {
 		for (const field of self.customizationModel.model) {
 			const safeFieldName = sanitizeName(field.id)
-			add(
-				`customize_${safeFieldName}`,
-				`Customize - ${field.title}`,
+			add(`customize_${safeFieldName}`, `Customize - ${field.title}`, () =>
 				formatValue(normalizeColor(self.customizationValues[field.id], field.type)),
 			)
 		}
 	} else {
 		// No customization model (bespoke app) — fall back to raw mainComposition keys.
-		for (const [fieldId, value] of Object.entries(self.customizationValues)) {
-			add(`customize_${sanitizeName(fieldId)}`, `Customize - ${fieldId}`, formatValue(normalizeColor(value)))
+		for (const fieldId of Object.keys(self.customizationValues)) {
+			add(`customize_${sanitizeName(fieldId)}`, `Customize - ${fieldId}`, () =>
+				formatValue(normalizeColor(self.customizationValues[fieldId])),
+			)
 		}
 	}
 
 	return entries
 }
 
+/** Register the app's variables. Their entries are kept, so value pushes don't rebuild ids and names. */
 export function UpdateVariableDefinitions(self: ModuleInstance): void {
-	const variables: CompanionVariableDefinition[] = buildVariableEntries(self).map(({ variableId, name }) => ({
+	self.variableEntries = buildVariableEntries(self)
+	const variables: CompanionVariableDefinition[] = self.variableEntries.map(({ variableId, name }) => ({
 		variableId,
 		name,
 	}))
@@ -191,10 +162,10 @@ export function UpdateVariableDefinitions(self: ModuleInstance): void {
  * Push variable values, sending only those that changed since the last push.
  * Pass `force` after definitions were rebuilt so Companion gets a full refresh.
  */
-export function UpdateVariableValues(self: ModuleInstance, force = false): void {
+export function UpdateVariableValues(self: ModuleInstance, force: boolean): void {
 	const values: Record<string, VariableValue | undefined> = {}
-	for (const entry of buildVariableEntries(self)) {
-		values[entry.variableId] = entry.value
+	for (const entry of self.variableEntries) {
+		values[entry.variableId] = entry.read()
 	}
 
 	const changed = force

@@ -1,6 +1,6 @@
 import { InstanceBase, runEntrypoint, InstanceStatus, type SomeCompanionConfigField } from '@companion-module/base'
 import { GetConfigFields, type ModuleConfig, type ModuleSecrets } from './config.js'
-import { UpdateVariableDefinitions, UpdateVariableValues, type VariableValue } from './variables.js'
+import { UpdateVariableDefinitions, UpdateVariableValues, type VariableEntry, type VariableValue } from './variables.js'
 import { UpgradeScripts } from './upgrades.js'
 import { UpdateActions } from './actions.js'
 import { UpdateFeedbacks } from './feedbacks.js'
@@ -37,15 +37,13 @@ import {
 	CONNECT_RETRY_SECONDS,
 	GLOBAL_OVERLAY_ID,
 	VISIBLE_SUBCOMPOSITION_STATE,
-	type DropdownChoice,
 	type JsonObject,
 	type JsonValue,
 } from './types.js'
 import { errorMessage, isPlainObject, maskApiToken } from './util.js'
-import { controlSubModels, flattenControlModel, logicLayerMap, type ControlSub } from './inferred-model.js'
-import { globalVisibility, mergeKnownFields, patchSubs, soleOverlaySub, withVisibility } from './control-state.js'
-
-export type OverlayChoice = DropdownChoice
+import { controlSubModel, flattenControlModel, type ControlSub } from './inferred-model.js'
+import { resolveAppShape, type AppShape } from './app-shape.js'
+import { globalVisibility, soleOverlaySub, withFields, withVisibility } from './control-state.js'
 
 /**
  * State a command's response describes, so it can be applied without re-reading /control.
@@ -58,6 +56,15 @@ const VISIBILITY_COMMANDS = new Set(['ShowOverlay', 'HideOverlay', 'ToggleOverla
 const FIELD_COMMAND_VERBS = ['Set', 'Increment', 'Decrement', 'Toggle', 'Execute']
 const CONTENT_FIELD_COMMANDS = new Set(FIELD_COMMAND_VERBS.map((verb) => `${verb}OverlayContentField`))
 const CUSTOMIZATION_FIELD_COMMANDS = new Set(FIELD_COMMAND_VERBS.map((verb) => `${verb}CustomizationField`))
+
+/** Pieces of polled state, each read by its own feedback. */
+type StateGroup = 'visibility' | 'content' | 'customization'
+
+const STATE_GROUP_FEEDBACKS: Record<StateGroup, string> = {
+	visibility: 'overlay_visible',
+	content: 'overlay_content_field',
+	customization: 'customization_field',
+}
 
 function commandTarget(payload: ApiPayload): CommandTarget {
 	const overlayId = payload.id ?? ''
@@ -91,20 +98,19 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	controlState: ControlSubComposition[] = []
 	/** Subcompositions from GET /model, which carries field types and logic layers even for bespoke apps. */
 	controlSubs: ControlSub[] = []
-	/** Subcomposition id → logic layer key, derived from controlSubs. */
-	private logicLayers: Map<string, string> = new Map()
 
-	/** Overlay dropdown choices, derived from overlayList. */
-	get overlayChoices(): OverlayChoice[] {
-		return this.overlayList.map((o) => ({ id: o.id, label: o.name }))
-	}
+	/** What the app offers and how to drive it — re-resolved whenever discovery or /control changes its shape. */
+	shape!: AppShape
 
+	/** Registered variables and how to read each one, rebuilt with the definitions. */
+	variableEntries: VariableEntry[] = []
 	/** Last values pushed to Companion, so each poll only sends what actually moved. */
 	lastVariableValues: Record<string, VariableValue | undefined> = {}
 	private lastDefinitionsFingerprint = ''
-	private lastVisibilityFingerprint = ''
-	private lastContentFingerprint = ''
-	private lastCustomizationFingerprint = ''
+	/** What discovery found, serialised once per connection for the definitions fingerprint. */
+	private structureFingerprint = ''
+	/** Last polled state per group, so a /control read only re-checks the feedbacks whose input moved. */
+	private lastStateFingerprints: Record<StateGroup, string> = { visibility: '', content: '', customization: '' }
 
 	private pollRetryTimer: ReturnType<typeof setTimeout> | undefined
 	private reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -123,6 +129,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	async init(config: ModuleConfig, _isFirstInit: boolean, secrets: ModuleSecrets): Promise<void> {
 		this.config = config
 		this.secrets = secrets
+		this.shape = resolveAppShape(this)
 
 		this.updateActions()
 		this.updateFeedbacks()
@@ -170,15 +177,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	// Connection & state refresh
 	// ----------------------------------------------------------------
 
-	/**
-	 * Whether a command is advertised by the app's schema.
-	 * Only trustworthy for mutating visibility commands — Get* commands aren't gated this way
-	 * (see presets/visibility.ts callers for why).
-	 */
-	hasCommand(command: string): boolean {
-		return this.availableCommands.has(command)
-	}
-
 	clearState(): void {
 		this.appInfo = null
 		this.appThumbnailPng64 = null
@@ -195,14 +193,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		this.customizationValues = {}
 		this.controlState = []
 		this.controlSubs = []
-		this.logicLayers.clear()
+		this.shape = resolveAppShape(this)
 
 		// Force a full re-register and re-push on the next poll.
 		this.lastVariableValues = {}
 		this.lastDefinitionsFingerprint = ''
-		this.lastVisibilityFingerprint = ''
-		this.lastContentFingerprint = ''
-		this.lastCustomizationFingerprint = ''
+		this.structureFingerprint = ''
+		this.lastStateFingerprints = { visibility: '', content: '', customization: '' }
 	}
 
 	async initConnection(epoch: number): Promise<void> {
@@ -222,19 +219,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			if (epoch !== this.connectionEpoch) return
 			this.appInfo = appInfo
 
-			await this.fetchAppThumbnail(epoch)
-
-			const commandSchema = await getApiSchema(apiToken)
+			// AppInfo validates the token; everything else only needs the token and can be fetched at once.
+			await Promise.all([this.fetchAppThumbnail(epoch), this.fetchCommandSchema(epoch), this.discoverStructure(epoch)])
 			if (epoch !== this.connectionEpoch) return
-			this.commandSchema = commandSchema
-			this.availableCommands = getAvailableCommands(this.commandSchema)
-			this.log('debug', `Discovered ${this.availableCommands.size} available command(s)`)
-			this.log('debug', `API schema for "${this.appInfo.name}":\n${JSON.stringify(this.commandSchema, null, 2)}`)
+			this.shape = resolveAppShape(this)
+			this.structureFingerprint = this.computeStructureFingerprint()
 
-			await this.discoverStructure(epoch)
+			// The first /control read doesn't need the selection lists, so it runs alongside them.
+			const firstRead = this.fetchControlState()
+			// applyPoll() below handles a failure; this only stops it counting as unhandled meanwhile.
+			firstRead.catch(() => undefined)
+			await this.resolveSelectionSources(epoch)
 			if (epoch !== this.connectionEpoch) return
 
-			await this.pollData()
+			await this.applyPoll(firstRead)
 			if (epoch !== this.connectionEpoch) return
 
 			this.logStructureDebug()
@@ -248,6 +246,15 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			if (epoch !== this.connectionEpoch) return
 			this.handleConnectionError(error)
 		}
+	}
+
+	private async fetchCommandSchema(epoch: number): Promise<void> {
+		const commandSchema = await getApiSchema(this.secrets.apiToken)
+		if (epoch !== this.connectionEpoch) return
+		this.commandSchema = commandSchema
+		this.availableCommands = getAvailableCommands(this.commandSchema)
+		this.log('debug', `Discovered ${this.availableCommands.size} available command(s)`)
+		this.log('debug', `API schema for "${this.appInfo?.name}":\n${JSON.stringify(this.commandSchema, null, 2)}`)
 	}
 
 	private async fetchAppThumbnail(epoch: number): Promise<void> {
@@ -292,11 +299,19 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		this.log('error', `Connection failed: ${message}`)
 	}
 
-	/** Run one poll cycle. A 429 anywhere inside aborts the rest of the cycle. */
+	/** Read /control and publish what changed. */
 	async pollData(): Promise<void> {
+		await this.applyPoll(this.fetchControlState())
+	}
+
+	/** Apply one /control read. A 429 is handled here (retry later); anything else is thrown. */
+	private async applyPoll(read: Promise<ControlSubComposition[]>): Promise<void> {
 		const epoch = this.connectionEpoch
 		try {
-			await this.runPollCycle(epoch)
+			const subs = await read
+			if (epoch !== this.connectionEpoch) return
+			this.applyControlState(subs)
+			this.publishState()
 		} catch (error) {
 			if (epoch !== this.connectionEpoch) return
 			if (isRateLimitError(error)) {
@@ -357,32 +372,33 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 
 	/** Fetch the app's structure — overlay list and the field models behind it. */
 	private async discoverStructure(epoch: number): Promise<void> {
-		await this.fetchStructure(
-			epoch,
-			'GetOverlays',
-			async () => getOverlays(this.secrets.apiToken),
-			(overlays) => {
-				this.overlayList = overlays
-			},
-		)
-		await this.fetchStructure(
-			epoch,
-			'GetOverlayModels',
-			async () => getOverlayModels(this.secrets.apiToken),
-			(models) => {
-				this.overlayModels = models
-			},
-		)
-		await this.fetchStructure(
-			epoch,
-			'GetCustomizationModel',
-			async () => getCustomizationModel(this.secrets.apiToken),
-			(model) => {
-				this.customizationModel = model
-			},
-		)
-		await this.fetchControlModel(epoch)
-		await this.resolveSelectionSources(epoch)
+		await Promise.all([
+			this.fetchStructure(
+				epoch,
+				'GetOverlays',
+				async () => getOverlays(this.secrets.apiToken),
+				(overlays) => {
+					this.overlayList = overlays
+				},
+			),
+			this.fetchStructure(
+				epoch,
+				'GetOverlayModels',
+				async () => getOverlayModels(this.secrets.apiToken),
+				(models) => {
+					this.overlayModels = models
+				},
+			),
+			this.fetchStructure(
+				epoch,
+				'GetCustomizationModel',
+				async () => getCustomizationModel(this.secrets.apiToken),
+				(model) => {
+					this.customizationModel = model
+				},
+			),
+			this.fetchControlModel(epoch),
+		])
 	}
 
 	/** The composition tree is a nice-to-have: without it the module still connects, just with fewer controls. */
@@ -391,7 +407,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			const model = await getControlModel(this.secrets.apiToken)
 			if (epoch !== this.connectionEpoch) return
 			this.controlSubs = flattenControlModel(model)
-			this.logicLayers = logicLayerMap(this.controlSubs)
 		} catch (error) {
 			if (epoch !== this.connectionEpoch) return
 			// Fail the connect so it's retried, like the Get* structure fetches.
@@ -408,7 +423,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		const models = [
 			...this.overlayModels,
 			...(this.customizationModel ? [this.customizationModel] : []),
-			...controlSubModels(this),
+			...this.controlSubs.map(controlSubModel),
 		]
 		if (models.length === 0) return
 
@@ -433,7 +448,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		}
 
 		// Single-overlay apps key their visibility under 'global'.
-		if (this.overlayList.length === 0) {
+		if (this.shape.singleOverlay) {
 			const visible = globalVisibility(subs)
 			if (visible !== undefined) this.overlayVisibility.set(GLOBAL_OVERLAY_ID, visible)
 		}
@@ -469,15 +484,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		return request
 	}
 
-	/** One GET returns visibility + content for every subcomposition. */
-	private async runPollCycle(epoch: number): Promise<void> {
-		const subs = await this.fetchControlState()
-		if (epoch !== this.connectionEpoch) return
-
-		this.applyControlState(subs)
-		this.publishState()
-	}
-
 	/**
 	 * Push whatever moved: changed variable values, and feedbacks whose inputs shifted.
 	 * Feedback groups are gated separately so an idle poll re-evaluates neither.
@@ -485,27 +491,42 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 	private syncValuesAndFeedbacks(force: boolean): void {
 		UpdateVariableValues(this, force)
 
-		const visibility = JSON.stringify([...this.overlayVisibility.entries()].sort())
-		if (force || visibility !== this.lastVisibilityFingerprint) {
-			this.lastVisibilityFingerprint = visibility
-			this.checkFeedbacks('overlay_visible', 'app_thumbnail')
+		for (const group of Object.keys(STATE_GROUP_FEEDBACKS) as StateGroup[]) {
+			const fingerprint = this.stateFingerprint(group)
+			if (!force && fingerprint === this.lastStateFingerprints[group]) continue
+			this.lastStateFingerprints[group] = fingerprint
+			this.checkFeedbacks(STATE_GROUP_FEEDBACKS[group])
 		}
+		// The thumbnail only changes on connect, which always forces a full sync.
+		if (force) this.checkFeedbacks('app_thumbnail')
+	}
 
-		const content = JSON.stringify([...this.overlayContent.entries()].sort((a, b) => a[0].localeCompare(b[0])))
-		if (force || content !== this.lastContentFingerprint) {
-			this.lastContentFingerprint = content
-			this.checkFeedbacks('overlay_content_field')
-		}
-
-		const customization = JSON.stringify(this.customizationValues)
-		if (force || customization !== this.lastCustomizationFingerprint) {
-			this.lastCustomizationFingerprint = customization
-			this.checkFeedbacks('customization_field')
+	private stateFingerprint(group: StateGroup): string {
+		switch (group) {
+			case 'visibility':
+				return JSON.stringify([...this.overlayVisibility.entries()].sort())
+			case 'content':
+				return JSON.stringify([...this.overlayContent.entries()].sort((a, b) => a[0].localeCompare(b[0])))
+			case 'customization':
+				return JSON.stringify(this.customizationValues)
 		}
 	}
 
-	/** Fingerprint of state that drives action/feedback/preset/variable definitions. */
-	private definitionsFingerprint(): string {
+	/**
+	 * Publish a change this module made itself. It can't alter the app's shape, so definitions are left alone,
+	 * and only the feedbacks reading the changed state are re-checked.
+	 */
+	private publishOwnChange(groups: StateGroup[]): void {
+		UpdateVariableValues(this, false)
+		for (const group of groups) {
+			// The next /control read must re-check this group even if it matches the last one, in case the
+			// app didn't take the change.
+			this.lastStateFingerprints[group] = ''
+			this.checkFeedbacks(STATE_GROUP_FEEDBACKS[group])
+		}
+	}
+
+	private computeStructureFingerprint(): string {
 		return JSON.stringify({
 			app: this.appInfo?.name ?? null,
 			thumbnail: this.appThumbnailPng64 !== null,
@@ -515,13 +536,18 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 			models: this.overlayModels.map((m) => [m.id, m.name, m.hasSlots, m.model.map((f) => f.id)]),
 			customization: this.customizationModel?.model.map((f) => f.id) ?? null,
 			controlSubs: this.controlSubs.map((s) => [s.id, s.name, s.layerKey, s.fields.map((f) => f.id)]),
-			// Bespoke apps have no models — variables are defined by datastore keys.
-			control: this.controlState.map((s) => [
-				s.subCompositionId,
-				s.subCompositionName,
-				Object.keys(s.payload ?? {}).sort(),
-			]),
 		})
+	}
+
+	/** Fingerprint of state that drives action/feedback/preset/variable definitions. */
+	private definitionsFingerprint(): string {
+		// Bespoke apps have no models — variables are defined by datastore keys.
+		const control = this.controlState.map((s) => [
+			s.subCompositionId,
+			s.subCompositionName,
+			Object.keys(s.payload ?? {}).sort(),
+		])
+		return this.structureFingerprint + JSON.stringify(control)
 	}
 
 	/** Re-register definitions only if the app's shape changed. */
@@ -529,6 +555,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		const fingerprint = this.definitionsFingerprint()
 		if (fingerprint === this.lastDefinitionsFingerprint) return false
 		this.lastDefinitionsFingerprint = fingerprint
+		// Apps with no models infer their fields from /control, so its shape can move the app's too.
+		this.shape = resolveAppShape(this)
 
 		this.updateActions()
 		this.updateFeedbacks()
@@ -597,20 +625,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		return subs.find((s) => s.subCompositionId === id)?.payload
 	}
 
-	private cachedContentPayload(overlayId: string): JsonObject | undefined {
+	/** One overlay's content as last polled or optimistically set. */
+	contentValues(overlayId: string): JsonObject | undefined {
 		const id = this.resolveContentOverlayId(overlayId, this.controlState)
-		if (id) return this.overlayContent.get(id)
-		if (this.overlayContent.size === 1) return [...this.overlayContent.values()][0]
-		return undefined
-	}
-
-	/** Last polled value of the field a content/customization field command targets. */
-	storedFieldValue(payload: ApiPayload): JsonValue | undefined {
-		if (payload.fieldId === undefined) return undefined
-		const target = commandTarget(payload)
-		if (target?.kind === 'content') return this.cachedContentPayload(target.overlayId)?.[payload.fieldId]
-		if (target?.kind === 'customization') return this.customizationValues[payload.fieldId]
-		return undefined
+		return id ? this.overlayContent.get(id) : undefined
 	}
 
 	/** Live content payload for one overlay — used by action Learn callbacks. */
@@ -622,7 +640,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		} catch (error) {
 			this.log('warn', `Learn: could not fetch live state, falling back to last poll - ${error}`)
 		}
-		return this.cachedContentPayload(overlayId)
+		return this.contentValues(overlayId)
 	}
 
 	/**
@@ -670,18 +688,14 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		let subs = this.controlState
 		if (patch.state !== undefined) {
 			const visible = patch.state === VISIBLE_SUBCOMPOSITION_STATE
-			subs = withVisibility(subs, patch.subCompositionId, visible, this.logicLayers)
+			subs = withVisibility(subs, patch.subCompositionId, visible, this.shape.graphics)
 		}
-		const fields = patch.payload
-		if (fields) {
-			subs = patchSubs(
-				subs,
-				(s) => s.subCompositionId === patch.subCompositionId,
-				(s) => mergeKnownFields(s, fields),
-			)
-		}
+		if (patch.payload) subs = withFields(subs, patch.subCompositionId, patch.payload)
 		this.applyControlState(subs)
-		this.publishState()
+		this.publishOwnChange([
+			...(patch.state !== undefined ? (['visibility'] as const) : []),
+			...(patch.payload ? (['content'] as const) : []),
+		])
 	}
 
 	/**
@@ -692,39 +706,38 @@ export class ModuleInstance extends InstanceBase<ModuleConfig, ModuleSecrets> {
 		const sent = await this.trySend(payload.command, async () => sendCommand(this.secrets.apiToken, payload))
 		if (!sent) return
 
-		if (this.applyCommandResult(commandTarget(payload), sent.result.payload)) {
-			this.publishState()
+		const changed = this.applyCommandResult(commandTarget(payload), sent.result.payload)
+		if (changed) {
+			this.publishOwnChange(changed)
 		} else {
 			this.refreshAfterAction()
 		}
 	}
 
-	/** Fold a command's response into state. False when it can't be, and /control has to be re-read. */
-	private applyCommandResult(target: CommandTarget, result: JsonValue | undefined): boolean {
-		if (!target) return false
+	/**
+	 * Fold a command's response into state, returning what it changed.
+	 * Null when it can't be, and /control has to be re-read.
+	 */
+	private applyCommandResult(target: CommandTarget, result: JsonValue | undefined): StateGroup[] | null {
+		if (!target) return null
 
 		if (target.kind === 'visibility') {
-			if (typeof result !== 'boolean') return false
-			this.applyControlState(withVisibility(this.controlState, target.overlayId, result, this.logicLayers))
-			return true
+			if (typeof result !== 'boolean') return null
+			this.applyControlState(withVisibility(this.controlState, target.overlayId, result, this.shape.graphics))
+			// A single-overlay app's visibility can live in a content flag (ShowOverlay).
+			return this.shape.singleOverlay ? ['visibility', 'content'] : ['visibility']
 		}
 
-		if (!isPlainObject(result)) return false
+		if (!isPlainObject(result)) return null
 		const subId =
 			target.kind === 'content'
 				? this.resolveContentOverlayId(target.overlayId, this.controlState)
 				: this.controlState.find((s) => s.mainComposition)?.subCompositionId
-		if (!subId) return false
+		if (!subId) return null
 
 		// Field commands return the whole payload.
-		this.applyControlState(
-			patchSubs(
-				this.controlState,
-				(s) => s.subCompositionId === subId,
-				(s) => mergeKnownFields(s, result),
-			),
-		)
-		return true
+		this.applyControlState(withFields(this.controlState, subId, result))
+		return [target.kind]
 	}
 
 	/** Queue a post-action state refresh, debounced. */

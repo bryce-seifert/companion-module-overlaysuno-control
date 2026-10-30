@@ -1,6 +1,6 @@
 import type { CompanionPresetDefinitions } from '@companion-module/base'
 import type { OverlayModel } from '../api.js'
-import { COLOR } from '../style.js'
+import { ACTIVE_COLORS } from '../style.js'
 import { sanitizeName } from '../variables.js'
 import { buildFieldPresets } from './fields.js'
 
@@ -19,10 +19,7 @@ export function buildContentFieldPresets(model: OverlayModel, presets: Companion
 			{
 				feedbackId: 'overlay_content_field',
 				options: { overlayId: model.id, fieldId: field.id, value_boolean: true },
-				style: {
-					bgcolor: COLOR.amber,
-					color: COLOR.ink,
-				},
+				style: ACTIVE_COLORS,
 			},
 		],
 	})

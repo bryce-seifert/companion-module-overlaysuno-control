@@ -1,15 +1,16 @@
 import type { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from '../main.js'
 import { parseJsonObject } from '../util.js'
+import { contentWriter } from '../writers.js'
 import { buildFieldActions } from './fields.js'
-import { overlayChoices } from './shared.js'
+import { modelChoices } from './shared.js'
 
 export function getContentActions(self: ModuleInstance): CompanionActionDefinitions {
-	// Bespoke apps (no overlay models) reject the generic content commands.
-	if (self.overlayModels.length === 0) return {}
+	const writer = contentWriter(self)
+	if (!writer) return {}
 
-	const choices = overlayChoices(self)
-	const contentFields = self.overlayModels.flatMap((m) => m.model)
+	const models = self.shape.contentModels
+	const choices = modelChoices(models)
 	const overlayOption = {
 		id: 'overlayId',
 		type: 'dropdown' as const,
@@ -35,24 +36,22 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 			callback: async (event) => {
 				const parsed = parseJsonObject(String(event.options.content))
 				if (!parsed.ok) {
-					self.log('error', `SetOverlayContent: invalid JSON - ${parsed.error}`)
+					self.log('error', `Set Content: invalid JSON - ${parsed.error}`)
 					return
 				}
-				await self.sendAndRefresh({
-					command: 'SetOverlayContent',
-					id: String(event.options.overlayId),
-					content: parsed.value,
-				})
+				await writer.setAll(String(event.options.overlayId), parsed.value)
 			},
 			learn: async (event) => {
-				const content = await self.fetchLiveContent(String(event.options.overlayId))
+				const content = await writer.fetchValues(String(event.options.overlayId))
 				if (!content) return undefined
 				return { ...event.options, content: JSON.stringify(content, null, 2) }
 			},
 		},
-		...buildFieldActions(self, {
-			fields: contentFields,
+		...buildFieldActions({
+			fields: models.flatMap((m) => m.model),
 			targetOptions: [overlayOption],
+			targetOf: (options) => String(options.overlayId),
+			writer,
 			actionIds: {
 				set: 'set_overlay_content_field',
 				toggle: 'toggle_overlay_content_field',
@@ -63,15 +62,6 @@ export function getContentActions(self: ModuleInstance): CompanionActionDefiniti
 				toggle: 'Overlays - Toggle Content Field',
 				execute: 'Overlays - Execute Content Field',
 			},
-			commands: {
-				set: 'SetOverlayContentField',
-				increment: 'IncrementOverlayContentField',
-				decrement: 'DecrementOverlayContentField',
-				toggle: 'ToggleOverlayContentField',
-				execute: 'ExecuteOverlayContentField',
-			},
-			payloadFor: (options) => ({ command: '', id: String(options.overlayId) }),
-			fetchValues: async (options) => self.fetchLiveContent(String(options.overlayId)),
 		}),
 	}
 }

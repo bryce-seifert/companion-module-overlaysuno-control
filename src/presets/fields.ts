@@ -2,7 +2,7 @@ import type { CompanionButtonPresetDefinition, CompanionPresetDefinitions, Input
 import type { OverlayModel, OverlayModelField } from '../api.js'
 import { fieldChoiceLabel, fieldSetOption } from '../fields.js'
 import { ICON_ADD_1, ICON_MINUS_1, ICON_PAUSE_TIME, ICON_PLAY_TIME, ICON_RESET, ICON_RESTORE_TIME } from '../icons.js'
-import { COLOR } from '../style.js'
+import { COLOR, iconButtonStyle } from '../style.js'
 import { FieldType, NUMERIC_FIELD_TYPES } from '../types.js'
 import { addDivider, orderFieldsByGroups } from './layout.js'
 
@@ -171,16 +171,7 @@ function buildAdjustPreset(
 		type: 'button',
 		category: config.category,
 		name: `${label} ${suffix}`,
-		style: {
-			text: label,
-			size: 15,
-			color: COLOR.white,
-			bgcolor: COLOR.surface,
-			show_topbar: false,
-			alignment: 'center:bottom',
-			png64: icon,
-			pngalignment: 'center:top',
-		},
+		style: iconButtonStyle(label, icon),
 		steps: [
 			{
 				down: [adjustAction(config, field, direction)],
@@ -263,16 +254,7 @@ function buildTimeControlPresets(
 			type: 'button',
 			category: config.category,
 			name: `${label}: ${action.label}`,
-			style: {
-				text: `${label}\\n${action.label}`,
-				size: 15,
-				color: COLOR.white,
-				bgcolor: COLOR.surface,
-				show_topbar: false,
-				alignment: 'center:bottom',
-				png64: action.icon,
-				pngalignment: 'center:top',
-			},
+			style: iconButtonStyle(`${label}\\n${action.label}`, action.icon),
 			steps: [
 				{
 					down: [

@@ -5,7 +5,6 @@ import { getSlotActions } from './actions/slots.js'
 import { getCustomizationActions } from './actions/customization.js'
 import { getSchemaActions } from './actions/schema.js'
 import { getCustomActions } from './actions/custom.js'
-import { getSubCompositionActions } from './actions/subcomposition.js'
 
 export function UpdateActions(self: ModuleInstance): void {
 	self.setActionDefinitions({
@@ -14,7 +13,6 @@ export function UpdateActions(self: ModuleInstance): void {
 		...getSlotActions(self),
 		...getCustomizationActions(self),
 		...getSchemaActions(self),
-		...getSubCompositionActions(self),
 		...getCustomActions(self),
 	})
 }
