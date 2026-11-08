@@ -1,4 +1,11 @@
-import { FieldType, HttpStatus, VISIBLE_SUBCOMPOSITION_STATE, type JsonObject, type JsonValue } from './types.js'
+import {
+	FieldType,
+	HttpStatus,
+	isExcludedFieldType,
+	VISIBLE_SUBCOMPOSITION_STATE,
+	type JsonObject,
+	type JsonValue,
+} from './types.js'
 import { errorMessage, isPlainObject, parseJsonObject } from './util.js'
 
 const BASE_URL = 'https://app.overlays.uno/apiv2/controlapps'
@@ -311,13 +318,29 @@ function normalizeFields(fields: OverlayModelField[] | undefined): OverlayModelF
 	return (fields ?? []).map((field) => ({ ...field, type: normalizeType(field.type) }))
 }
 
+/** Control nodes of an excluded type (metricfont, and any type added later) are not exposed. */
+function exposedFields(fields: OverlayModelField[] | undefined): OverlayModelField[] {
+	return normalizeFields(fields).filter((field) => !isExcludedFieldType(field.type))
+}
+
 function normalizeModel(model: OverlayModel): OverlayModel {
-	return { ...model, model: normalizeFields(model.model) }
+	const modelFields = exposedFields(model.model)
+	const kept = new Set(modelFields.map((field) => field.id))
+	const groups = (model.groups ?? [])
+		.map((group) => ({
+			...group,
+			childIds: (group.childIds ?? []).filter((id) => kept.has(id)),
+		}))
+		.filter((group) => group.childIds.length > 0)
+
+	return { ...model, model: modelFields, groups }
 }
 
 function normalizeModelNode(node: ControlModelNode): ControlModelNode {
 	return {
 		...node,
+		// Kept intact here: a node whose fields are all excluded is still a data node, not a graphic.
+		// flattenControlModel drops the excluded fields when it exposes them.
 		model: normalizeFields(node.model),
 		logicLayer: node.logicLayer ?? null,
 		subcompositions: (node.subcompositions ?? []).map(normalizeModelNode),

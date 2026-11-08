@@ -1,7 +1,7 @@
 import type { ModuleInstance } from './main.js'
 import type { ControlModelNode, ControlSubComposition, OverlayModel, OverlayModelField } from './api.js'
 import { hasPayload } from './api.js'
-import { FieldType, type JsonObject, type JsonValue } from './types.js'
+import { FieldType, isExcludedFieldType, type JsonObject, type JsonValue } from './types.js'
 import { isRgbObject } from './variables.js'
 
 /**
@@ -61,13 +61,14 @@ export function flattenControlModel(roots: ControlModelNode[]): ControlSub[] {
 	const subs: ControlSub[] = []
 
 	const visit = (node: ControlModelNode, parentId: string, insideGraphic: boolean): void => {
+		// Graphic vs data uses the raw model: a node that only holds excluded types is still data, not a graphic.
 		const isGraphic = !insideGraphic && node.model.length === 0
 		subs.push({
 			id: node.id,
 			name: node.name,
 			layerName: node.logicLayer?.name ?? null,
 			layerKey: node.logicLayer ? `${parentId}:${node.logicLayer.name}` : null,
-			fields: node.model,
+			fields: node.model.filter((field) => !isExcludedFieldType(field.type)),
 			isGraphic,
 		})
 		for (const child of node.subcompositions) visit(child, node.id, insideGraphic || isGraphic)

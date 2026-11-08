@@ -82,10 +82,16 @@ export const ACTION_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Button
 export const TOGGLE_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.Checkbox, FieldType.Boolean])
 
 /**
- * Field types whose live values are structured JSON (e.g. font specs).
- * These are useless as button text — presets should show only the field label.
+ * Control-node types the module does not surface.
+ * Dropped when a model is loaded, so they never become actions, feedbacks, presets, or variables.
+ * Add a type here to exclude it the same way.
  */
-export const STRUCTURED_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.MetricFont])
+export const EXCLUDED_FIELD_TYPES: ReadonlySet<string> = new Set([FieldType.MetricFont])
+
+/** True for a control node the module should leave out. Casing matches the API, which is not consistent. */
+export function isExcludedFieldType(type: string): boolean {
+	return EXCLUDED_FIELD_TYPES.has(type.toLowerCase())
+}
 
 /** Subcomposition animation state that means "on air". */
 export const VISIBLE_SUBCOMPOSITION_STATE = 'In'
