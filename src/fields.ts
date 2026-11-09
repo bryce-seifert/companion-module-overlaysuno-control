@@ -116,9 +116,7 @@ export function fieldSetOption(field: OverlayModelField): { optionId: string; va
 		return { optionId: `value_sel_${sanitizeName(field.id)}`, value }
 	}
 
-	const raw = field.defaultValue
-	const value = typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean' ? raw : ''
-	return { optionId: 'value', value }
+	return { optionId: 'value', value: '' }
 }
 
 export interface FieldValueInputs {
