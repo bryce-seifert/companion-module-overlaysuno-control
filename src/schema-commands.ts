@@ -129,7 +129,7 @@ export function argInput(arg: CommandArgument, overlayChoices: DropdownChoice[])
 			label,
 			choices: (arg.selections ?? []).map((s) => ({ id: s.id, label: s.title })),
 			default: arg.default ?? arg.selections?.[0]?.id ?? '',
-			allowCustom: true,
+			allowCustom: false,
 		}
 	}
 

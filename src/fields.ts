@@ -221,8 +221,9 @@ function buildValueOptions(
 			label: `Value - ${field.title}`,
 			default: field.selections?.[0]?.id ?? '',
 			choices: (field.selections ?? []).map((s) => ({ id: s.id, label: s.title })),
-			// URL-sourced lists are a fixed enum; free-text entries aren't valid.
-			allowCustom: !field.sourceUrl,
+			// A custom dropdown shows the stored id while it is open. These options are a fixed list,
+			// so keep the field on the title.
+			allowCustom: false,
 			isVisibleExpression: `$(options:fieldId) == '${escExpr(field.id)}'`,
 		})
 	}
